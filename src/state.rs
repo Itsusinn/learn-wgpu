@@ -1,6 +1,6 @@
 use color_eyre::eyre::Result;
-use na::{Point3, Vector2, Vector3};
-use wgpu::{include_wgsl, util::DeviceExt, Backends};
+use na::Point3;
+use wgpu::{include_wgsl, Backends};
 // lib.rs
 use winit::{
   event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -8,58 +8,14 @@ use winit::{
 };
 
 use crate::{
+  exts::state::{DeviceTrait, DeviceWarp},
   geom::{
     self,
     camera::{Camera, CameraUniform},
   },
   texture,
+  vertex::{Vertex, INDICES, VERTICES},
 };
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-  position: Vector3<f32>,
-  tex_coords: Vector2<f32>,
-}
-impl Vertex {
-  const ATTRIBS: [wgpu::VertexAttribute; 2] =
-    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
-
-  fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-    wgpu::VertexBufferLayout {
-      // array_stride 定义了每个顶点的宽度
-      array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-      // step_mode 告诉 pipeline 应以怎样的频率移动到下一个顶点
-      step_mode: wgpu::VertexStepMode::Vertex,
-      attributes: &Self::ATTRIBS,
-    }
-  }
-}
-
-const VERTICES: &[Vertex] = &[
-  Vertex {
-    position: Vector3::new(-0.0868241, 0.49240386, 0.0),
-    tex_coords: Vector2::new(0.4131759, 0.99240386),
-  }, // A
-  Vertex {
-    position: Vector3::new(-0.49513406, 0.06958647, 0.0),
-    tex_coords: Vector2::new(0.0048659444, 0.56958647),
-  }, // B
-  Vertex {
-    position: Vector3::new(-0.21918549, -0.44939706, 0.0),
-    tex_coords: Vector2::new(0.28081453, 0.05060294),
-  }, // C
-  Vertex {
-    position: Vector3::new(0.35966998, -0.3473291, 0.0),
-    tex_coords: Vector2::new(0.85967, 0.1526709),
-  }, // D
-  Vertex {
-    position: Vector3::new(0.44147372, 0.2347359, 0.0),
-    tex_coords: Vector2::new(0.9414737, 0.7347359),
-  }, // E
-];
-
-const INDICES: &[u16] = &[0, 4,1, 1, 4,2, 2, 4,3];
 
 pub struct State {
   surface: wgpu::Surface,
@@ -80,7 +36,17 @@ pub struct State {
   camera_buffer: wgpu::Buffer,
   camera_bind_group: wgpu::BindGroup,
 }
+impl DeviceTrait for State {
+  #[inline(always)]
+  fn get_device(&self) -> &wgpu::Device {
+    &self.device
+  }
 
+  #[inline(always)]
+  fn take(self) -> wgpu::Device {
+    self.device
+  }
+}
 impl State {
   // Creating some of the wgpu types requires async code
   pub async fn new(window: &Window) -> Result<Self> {
@@ -106,6 +72,7 @@ impl State {
         None,
       )
       .await?;
+    let device = DeviceWarp { inner: device };
     let config = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
       format: surface.get_supported_formats(&adapter)[0],
@@ -113,43 +80,43 @@ impl State {
       height: size.height,
       present_mode: wgpu::PresentMode::Fifo,
     };
-    surface.configure(&device, &config);
+    surface.configure(&device.inner, &config);
 
     let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
     let diffuse_texture =
-      texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy tree")?;
+      texture::Texture::from_bytes(&device.inner, &queue, diffuse_bytes, "happy tree")?;
 
-    let texture_bind_group_layout =
-      device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-          wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-              multisampled: false,
-              view_dimension: wgpu::TextureViewDimension::D2,
-              sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            },
-            count: None,
+    let texture_bind_group_layout = device.create_bind_group_layout(
+      "texture_bind_group_layout",
+      &[
+        wgpu::BindGroupLayoutEntry {
+          binding: 0,
+          visibility: wgpu::ShaderStages::FRAGMENT,
+          ty: wgpu::BindingType::Texture {
+            multisampled: false,
+            view_dimension: wgpu::TextureViewDimension::D2,
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
           },
-          wgpu::BindGroupLayoutEntry {
-            binding: 1,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(
-              // SamplerBindingType::Comparison 仅可供 TextureSampleType::Depth 使用
-              // 如果纹理的 sample_type 是 TextureSampleType::Float { filterable: true }
-              // 那么就应当使用 SamplerBindingType::Filtering
-              // 否则会报错
-              wgpu::SamplerBindingType::Filtering,
-            ),
-            count: None,
-          },
-        ],
-        label: Some("texture_bind_group_layout"),
-      });
-    let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-      layout: &texture_bind_group_layout,
-      entries: &[
+          count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+          binding: 1,
+          visibility: wgpu::ShaderStages::FRAGMENT,
+          ty: wgpu::BindingType::Sampler(
+            // SamplerBindingType::Comparison 仅可供 TextureSampleType::Depth 使用
+            // 如果纹理的 sample_type 是 TextureSampleType::Float { filterable: true }
+            // 那么就应当使用 SamplerBindingType::Filtering
+            // 否则会报错
+            wgpu::SamplerBindingType::Filtering,
+          ),
+          count: None,
+        },
+      ],
+    );
+    let diffuse_bind_group = device.create_bind_group(
+      "diffuse_bind_group",
+      &texture_bind_group_layout,
+      &[
         wgpu::BindGroupEntry {
           binding: 0,
           resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
@@ -159,72 +126,57 @@ impl State {
           resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
         },
       ],
-      label: Some("diffuse_bind_group"),
-    });
+    );
 
     let camera = Camera::new(Point3::new(0.0, 0.0, -2.0));
     let mut camera_uniform = CameraUniform::new();
     camera_uniform.update_view_proj(&camera, config.width as f32 / config.height as f32);
 
-    let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("Camera Buffer"),
-      contents: bytemuck::cast_slice(&[camera_uniform]),
-      usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    });
-    let camera_bind_group_layout =
-      device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-          binding: 0,
-          visibility: wgpu::ShaderStages::VERTEX,
-          ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-          },
-          count: None,
-        }],
-        label: Some("camera_bind_group_layout"),
-      });
-    let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-      layout: &camera_bind_group_layout,
-      entries: &[wgpu::BindGroupEntry {
+    let camera_buffer = device.create_buffer_init(
+      "Camera Buffer",
+      bytemuck::cast_slice(&[camera_uniform]),
+      wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    );
+    let camera_bind_group_layout = device.create_bind_group_layout(
+      "camera_bind_group_layout",
+      &[wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::VERTEX,
+        ty: wgpu::BindingType::Buffer {
+          ty: wgpu::BufferBindingType::Uniform,
+          has_dynamic_offset: false,
+          min_binding_size: None,
+        },
+        count: None,
+      }],
+    );
+    let camera_bind_group = device.create_bind_group(
+      "camera_bind_group",
+      &camera_bind_group_layout,
+      &[wgpu::BindGroupEntry {
         binding: 0,
         resource: camera_buffer.as_entire_binding(),
       }],
-      label: Some("camera_bind_group"),
-    });
+    );
 
     let shader = device.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
-    let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-      label: Some("Render Pipeline Layout"),
-      bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
-      push_constant_ranges: &[],
-    });
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-      label: Some("Render Pipline"),
-      layout: Some(&render_pipeline_layout),
-      vertex: wgpu::VertexState {
+    let render_pipeline_layout = device.create_pipeline_layout(
+      "Render Pipeline Layout",
+      &[&texture_bind_group_layout, &camera_bind_group_layout],
+      &[],
+    );
+    let render_pipeline = device.create_render_pipeline(
+      "Render Pipline",
+      Some(&render_pipeline_layout),
+      wgpu::VertexState {
         module: &shader,
         // 指定应将着色器中的哪个函数作为 entry_point
         entry_point: "vs_main",
         // buffers 字段用于告知 wgpu 我们要传递给顶点着色器的顶点类型
         buffers: &[Vertex::desc()],
       },
-      fragment: Some(wgpu::FragmentState {
-        module: &shader,
-        // 指定应将着色器中的哪个函数作为 entry_point
-        entry_point: "fs_main",
-        // targets 字段告诉 wgpu 应该设置哪些颜色输出
-        targets: &[Some(wgpu::ColorTargetState {
-          format: config.format,
-          // 指定混合模式（blending）为仅用新数据替换旧像素数据
-          blend: Some(wgpu::BlendState::REPLACE),
-          // 要求 wgpu 写入所有像素通道的颜色，即红、蓝、绿和 alpha
-          write_mask: wgpu::ColorWrites::ALL,
-        })],
-      }),
       // primitive 字段描述了应如何将我们所提供的顶点数据转为三角形
-      primitive: wgpu::PrimitiveState {
+      wgpu::PrimitiveState {
         // PrimitiveTopology::TriangleList 表示每三个顶点将对应一个三角形
         topology: wgpu::PrimitiveTopology::TriangleList,
         strip_index_format: None,
@@ -242,8 +194,8 @@ impl State {
         conservative: false,
       },
       // 深度 / 模板缓冲区
-      depth_stencil: None,
-      multisample: wgpu::MultisampleState {
+      None,
+      wgpu::MultisampleState {
         // count 决定了 pipeline 将使用多少次采样
         count: 1,
         // mask 指定了哪些采样应被设为活跃。目前我们将使用所有的采样
@@ -251,23 +203,36 @@ impl State {
         // 抗锯齿
         alpha_to_coverage_enabled: false,
       },
-      multiview: None, // 5.
-    });
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("Vertex Buffer"),
-      contents: bytemuck::cast_slice(VERTICES),
-      usage: wgpu::BufferUsages::VERTEX,
-    });
-    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-      label: Some("Index Buffer"),
-      contents: bytemuck::cast_slice(INDICES),
-      usage: wgpu::BufferUsages::INDEX,
-    });
+      Some(wgpu::FragmentState {
+        module: &shader,
+        // 指定应将着色器中的哪个函数作为 entry_point
+        entry_point: "fs_main",
+        // targets 字段告诉 wgpu 应该设置哪些颜色输出
+        targets: &[Some(wgpu::ColorTargetState {
+          format: config.format,
+          // 指定混合模式（blending）为仅用新数据替换旧像素数据
+          blend: Some(wgpu::BlendState::REPLACE),
+          // 要求 wgpu 写入所有像素通道的颜色，即红、蓝、绿和 alpha
+          write_mask: wgpu::ColorWrites::ALL,
+        })],
+      }),
+      None,
+    );
+    let vertex_buffer = device.create_buffer_init(
+      "Vertex Buffer",
+      bytemuck::cast_slice(VERTICES),
+      wgpu::BufferUsages::VERTEX,
+    );
+    let index_buffer = device.create_buffer_init(
+      "Index Buffer",
+      bytemuck::cast_slice(INDICES),
+      wgpu::BufferUsages::INDEX,
+    );
     let num_indices = INDICES.len() as u32;
 
     Ok(Self {
       surface,
-      device,
+      device: device.take(),
       queue,
       config,
       size,

@@ -1,15 +1,17 @@
 #![feature(backtrace)]
+pub mod exts;
 pub mod geom;
 pub mod input;
+pub mod instance;
 pub mod log;
 pub mod state;
 pub mod texture;
 pub mod time;
+pub mod vertex;
 
 use color_eyre::eyre::Result;
 use state::State;
 use winit::{
-  dpi::PhysicalPosition,
   event::{VirtualKeyCode as Keycode, *},
   event_loop::{ControlFlow, EventLoop},
   window::WindowBuilder,

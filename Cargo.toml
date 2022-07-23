@@ -17,6 +17,7 @@ dashmap = "5.3.4"
 
 # async
 tokio = { version = "1.20.0", default-features = false, features = ["macros","signal","rt-multi-thread"] }
+async-trait = "0.1.56"
 
 # logging
 env_logger = "0.9.0"
