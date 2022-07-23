@@ -20,7 +20,7 @@ use winit::{
 #[tokio::main]
 async fn main() -> Result<()> {
   env_logger::init();
-
+  time::get_now();
   let event_loop = EventLoop::new();
   let window = WindowBuilder::new().build(&event_loop)?;
   let mut state = State::new(&window).await?;
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
         }
         _ => {}
       }
-      if input::get_key_with_cooldown(Keycode::LControl, 0.7) {
+      if input::get_key_with_cooldown(Keycode::LControl, 0.3) {
         cursor_visible = !cursor_visible;
         window.set_cursor_visible(cursor_visible);
         window.set_cursor_grab(!cursor_visible).unwrap();
