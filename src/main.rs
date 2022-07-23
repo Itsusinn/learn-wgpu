@@ -1,14 +1,15 @@
-pub mod lib;
+pub mod texture;
+pub mod state;
 
-use lib::State;
+use color_eyre::eyre::Result;
+use state::State;
 use winit::{
   event::*,
   event_loop::{ControlFlow, EventLoop},
   window::WindowBuilder,
 };
-use color_eyre::eyre::Result;
 #[tokio::main]
-async fn main() -> Result<()>{
+async fn main() -> Result<()> {
   env_logger::init();
 
   let event_loop = EventLoop::new();

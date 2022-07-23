@@ -1,4 +1,5 @@
-use na::{Vector3, Vector2};
+use color_eyre::eyre::Result;
+use na::{Vector2, Vector3};
 use nalgebra as na;
 use wgpu::{include_wgsl, util::DeviceExt, Backends};
 // lib.rs
@@ -6,7 +7,8 @@ use winit::{
   event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
   window::Window,
 };
-use color_eyre::eyre::Result;
+
+use crate::texture;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -29,11 +31,26 @@ impl Vertex {
   }
 }
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords: Vector2::new(0.4131759, 0.99240386), }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords: Vector2::new(0.0048659444, 0.56958647), }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], tex_coords: Vector2::new(0.28081453, 0.05060294), }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], tex_coords: Vector2::new(0.85967, 0.1526709), }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], tex_coords: Vector2::new(0.9414737, 0.7347359), }, // E
+  Vertex {
+    position: [-0.0868241, 0.49240386, 0.0],
+    tex_coords: Vector2::new(0.4131759, 0.99240386),
+  }, // A
+  Vertex {
+    position: [-0.49513406, 0.06958647, 0.0],
+    tex_coords: Vector2::new(0.0048659444, 0.56958647),
+  }, // B
+  Vertex {
+    position: [-0.21918549, -0.44939706, 0.0],
+    tex_coords: Vector2::new(0.28081453, 0.05060294),
+  }, // C
+  Vertex {
+    position: [0.35966998, -0.3473291, 0.0],
+    tex_coords: Vector2::new(0.85967, 0.1526709),
+  }, // D
+  Vertex {
+    position: [0.44147372, 0.2347359, 0.0],
+    tex_coords: Vector2::new(0.9414737, 0.7347359),
+  }, // E
 ];
 
 const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
@@ -51,6 +68,7 @@ pub struct State {
   index_buffer: wgpu::Buffer,
   num_indices: u32,
   diffuse_bind_group: wgpu::BindGroup,
+  diffuse_texture: texture::Texture,
 }
 
 impl State {
@@ -88,59 +106,8 @@ impl State {
     surface.configure(&device, &config);
 
     let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
-    let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
-    let diffuse_rgba = diffuse_image.as_rgba8().unwrap();
+    let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy tree")?;
 
-    use image::GenericImageView;
-    // 图像的尺寸
-    let dimensions = diffuse_image.dimensions();
-    let texture_size = wgpu::Extent3d {
-      width: dimensions.0,
-      height: dimensions.1,
-      depth_or_array_layers: 1,
-    };
-    let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
-      // 所有纹理都会以三维数组形式存储，我们通过设置深度为 1 来表示这是二维的纹理
-      size: texture_size,
-      mip_level_count: 1, // 我们后面会介绍这里的细节
-      sample_count: 1,
-      dimension: wgpu::TextureDimension::D2,
-      // 多数图像都使用 sRGB 格式，所以我们需要在此将其体现出来
-      format: wgpu::TextureFormat::Rgba8UnormSrgb,
-      // TEXTURE_BINDING 告诉 wgpu 我们想在着色器中使用这个纹理
-      // COPY_DST 则表示我们想把数据复制到这个纹理
-      usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-      label: Some("diffuse_texture"),
-    });
-    queue.write_texture(
-      // 告诉 wgpu 从何处复制像素数据
-      wgpu::ImageCopyTexture {
-        texture: &diffuse_texture,
-        mip_level: 0,
-        origin: wgpu::Origin3d::ZERO,
-        aspect: wgpu::TextureAspect::All,
-      },
-      // 实际的像素数据
-      diffuse_rgba,
-      // 纹理的内存布局
-      wgpu::ImageDataLayout {
-        offset: 0,
-        bytes_per_row: std::num::NonZeroU32::new(4 * dimensions.0),
-        rows_per_image: std::num::NonZeroU32::new(dimensions.1),
-      },
-      texture_size,
-    );
-    // 我们无需手动配置纹理视图，让 wgpu 定义它即可
-    let diffuse_texture_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-      address_mode_u: wgpu::AddressMode::ClampToEdge,
-      address_mode_v: wgpu::AddressMode::ClampToEdge,
-      address_mode_w: wgpu::AddressMode::ClampToEdge,
-      mag_filter: wgpu::FilterMode::Linear,
-      min_filter: wgpu::FilterMode::Nearest,
-      mipmap_filter: wgpu::FilterMode::Nearest,
-      ..Default::default()
-    });
     let texture_bind_group_layout =
       device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
@@ -174,11 +141,11 @@ impl State {
       entries: &[
         wgpu::BindGroupEntry {
           binding: 0,
-          resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+          resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
         },
         wgpu::BindGroupEntry {
           binding: 1,
-          resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+          resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
         },
       ],
       label: Some("diffuse_bind_group"),
@@ -264,7 +231,8 @@ impl State {
       vertex_buffer,
       index_buffer,
       num_indices,
-      diffuse_bind_group
+      diffuse_bind_group,
+      diffuse_texture
     })
   }
 
