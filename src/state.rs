@@ -1,6 +1,5 @@
 use color_eyre::eyre::Result;
-use na::{Vector2, Vector3};
-use nalgebra as na;
+use na::{Point3, Vector2, Vector3};
 use wgpu::{include_wgsl, util::DeviceExt, Backends};
 // lib.rs
 use winit::{
@@ -8,12 +7,18 @@ use winit::{
   window::Window,
 };
 
-use crate::texture;
+use crate::{
+  geom::{
+    self,
+    camera::{Camera, CameraUniform},
+  },
+  texture,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
-  position: [f32; 3],
+  position: Vector3<f32>,
   tex_coords: Vector2<f32>,
 }
 impl Vertex {
@@ -30,30 +35,31 @@ impl Vertex {
     }
   }
 }
+
 const VERTICES: &[Vertex] = &[
   Vertex {
-    position: [-0.0868241, 0.49240386, 0.0],
+    position: Vector3::new(-0.0868241, 0.49240386, 0.0),
     tex_coords: Vector2::new(0.4131759, 0.99240386),
   }, // A
   Vertex {
-    position: [-0.49513406, 0.06958647, 0.0],
+    position: Vector3::new(-0.49513406, 0.06958647, 0.0),
     tex_coords: Vector2::new(0.0048659444, 0.56958647),
   }, // B
   Vertex {
-    position: [-0.21918549, -0.44939706, 0.0],
+    position: Vector3::new(-0.21918549, -0.44939706, 0.0),
     tex_coords: Vector2::new(0.28081453, 0.05060294),
   }, // C
   Vertex {
-    position: [0.35966998, -0.3473291, 0.0],
+    position: Vector3::new(0.35966998, -0.3473291, 0.0),
     tex_coords: Vector2::new(0.85967, 0.1526709),
   }, // D
   Vertex {
-    position: [0.44147372, 0.2347359, 0.0],
+    position: Vector3::new(0.44147372, 0.2347359, 0.0),
     tex_coords: Vector2::new(0.9414737, 0.7347359),
   }, // E
 ];
 
-const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+const INDICES: &[u16] = &[0, 4,1, 1, 4,2, 2, 4,3];
 
 pub struct State {
   surface: wgpu::Surface,
@@ -69,6 +75,10 @@ pub struct State {
   num_indices: u32,
   diffuse_bind_group: wgpu::BindGroup,
   diffuse_texture: texture::Texture,
+  camera: geom::camera::Camera,
+  camera_uniform: CameraUniform,
+  camera_buffer: wgpu::Buffer,
+  camera_bind_group: wgpu::BindGroup,
 }
 
 impl State {
@@ -106,7 +116,8 @@ impl State {
     surface.configure(&device, &config);
 
     let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
-    let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy tree")?;
+    let diffuse_texture =
+      texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy tree")?;
 
     let texture_bind_group_layout =
       device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -151,10 +162,42 @@ impl State {
       label: Some("diffuse_bind_group"),
     });
 
+    let camera = Camera::new(Point3::new(0.0, 0.0, -2.0));
+    let mut camera_uniform = CameraUniform::new();
+    camera_uniform.update_view_proj(&camera, config.width as f32 / config.height as f32);
+
+    let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+      label: Some("Camera Buffer"),
+      contents: bytemuck::cast_slice(&[camera_uniform]),
+      usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+    let camera_bind_group_layout =
+      device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+          binding: 0,
+          visibility: wgpu::ShaderStages::VERTEX,
+          ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+          },
+          count: None,
+        }],
+        label: Some("camera_bind_group_layout"),
+      });
+    let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+      layout: &camera_bind_group_layout,
+      entries: &[wgpu::BindGroupEntry {
+        binding: 0,
+        resource: camera_buffer.as_entire_binding(),
+      }],
+      label: Some("camera_bind_group"),
+    });
+
     let shader = device.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
       label: Some("Render Pipeline Layout"),
-      bind_group_layouts: &[&texture_bind_group_layout],
+      bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
       push_constant_ranges: &[],
     });
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -190,6 +233,7 @@ impl State {
         front_face: wgpu::FrontFace::Ccw,
         // 不满足朝前条件的三角形会被剔除（即不被渲染），这是用 CullMode::Back 所确定的
         cull_mode: Some(wgpu::Face::Back),
+        // cull_mode: None,
         // 如果将该字段设置为除了 Fill 之外的任何值，都需要 Features::NON_FILL_POLYGON_MODE
         polygon_mode: wgpu::PolygonMode::Fill,
         // 需要 Features::DEPTH_CLIP_ENABLE
@@ -220,19 +264,24 @@ impl State {
       usage: wgpu::BufferUsages::INDEX,
     });
     let num_indices = INDICES.len() as u32;
+
     Ok(Self {
       surface,
       device,
       queue,
       config,
       size,
-      clear_color: na::Vector3::new(0.0, 0.0, 0.0),
+      clear_color: na::Vector3::new(0.1, 0.7, 0.2),
       render_pipeline,
       vertex_buffer,
       index_buffer,
       num_indices,
       diffuse_bind_group,
-      diffuse_texture
+      diffuse_texture,
+      camera,
+      camera_uniform,
+      camera_buffer,
+      camera_bind_group,
     })
   }
 
@@ -268,7 +317,18 @@ impl State {
     false
   }
 
-  pub fn update(&mut self) {}
+  pub fn update(&mut self) {
+    self.camera.handle_input();
+    self.camera_uniform.update_view_proj(
+      &self.camera,
+      self.config.width as f32 / self.config.height as f32,
+    );
+    self.queue.write_buffer(
+      &self.camera_buffer,
+      0,
+      bytemuck::cast_slice(&[self.camera_uniform]),
+    );
+  }
 
   pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
     let output = self.surface.get_current_texture()?;
@@ -306,6 +366,7 @@ impl State {
 
     render_pass.set_pipeline(&self.render_pipeline);
     render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+    render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
     render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
     render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

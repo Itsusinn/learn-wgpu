@@ -1,13 +1,20 @@
-pub mod texture;
+#![feature(backtrace)]
+pub mod geom;
+pub mod input;
+pub mod log;
 pub mod state;
+pub mod texture;
+pub mod time;
 
 use color_eyre::eyre::Result;
 use state::State;
 use winit::{
-  event::*,
+  dpi::PhysicalPosition,
+  event::{VirtualKeyCode as Keycode, *},
   event_loop::{ControlFlow, EventLoop},
   window::WindowBuilder,
 };
+
 #[tokio::main]
 async fn main() -> Result<()> {
   env_logger::init();
@@ -16,12 +23,12 @@ async fn main() -> Result<()> {
   let window = WindowBuilder::new().build(&event_loop)?;
   let mut state = State::new(&window).await?;
 
+  let mut focus = false;
+  let mut cursor_visible = true;
+
   event_loop.run(move |event, _, control_flow| match event {
-    Event::WindowEvent {
-      ref event,
-      window_id,
-    } if window_id == window.id() => {
-      if state.input(event) {
+    Event::WindowEvent { event, window_id } if window_id == window.id() => {
+      if state.input(&event) {
         return;
       }
       match event {
@@ -36,13 +43,28 @@ async fn main() -> Result<()> {
           ..
         } => *control_flow = ControlFlow::Exit,
         WindowEvent::Resized(physical_size) => {
-          state.resize(*physical_size);
+          state.resize(physical_size);
         }
         WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-          state.resize(**new_inner_size);
+          state.resize(*new_inner_size);
         }
-
+        WindowEvent::Focused(v) => {
+          focus = v;
+        }
         _ => {}
+      }
+      if input::get_key_with_cooldown(Keycode::LControl, 0.7) {
+        cursor_visible = !cursor_visible;
+        window.set_cursor_visible(cursor_visible);
+        window.set_cursor_grab(!cursor_visible).unwrap();
+      };
+    }
+    Event::DeviceEvent {
+      device_id: _,
+      event,
+    } => {
+      if focus {
+        input::handle_input(&event);
       }
     }
     Event::RedrawRequested(window_id) if window_id == window.id() => {
