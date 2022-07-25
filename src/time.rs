@@ -5,7 +5,6 @@ use std::{
 
 use once_cell::sync::Lazy;
 
-
 static PREVIOUS_TIME: Lazy<Mutex<Instant>> = Lazy::new(|| Mutex::new(Instant::now()));
 static DELTA_TIME: Lazy<Mutex<Duration>> = Lazy::new(|| Mutex::new(Duration::from_millis(1)));
 

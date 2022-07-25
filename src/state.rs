@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use na::Point3;
+use na::{Point3, Vector3};
 use wgpu::{include_wgsl, Backends};
 // lib.rs
 use winit::{
@@ -13,6 +13,7 @@ use crate::{
     self,
     camera::{Camera, CameraUniform},
   },
+  instance::{self, Instance, InstanceRaw},
   texture,
   vertex::{Vertex, INDICES, VERTICES},
 };
@@ -35,7 +36,17 @@ pub struct State {
   camera_uniform: CameraUniform,
   camera_buffer: wgpu::Buffer,
   camera_bind_group: wgpu::BindGroup,
+
+  instances: Vec<instance::Instance>,
+  instance_buffer: wgpu::Buffer,
 }
+const NUM_INSTANCES_PER_ROW: u32 = 10;
+const INSTANCE_DISPLACEMENT: Vector3<f32> = Vector3::new(
+  NUM_INSTANCES_PER_ROW as f32 * 0.5,
+  0.0,
+  NUM_INSTANCES_PER_ROW as f32 * 0.5,
+);
+
 impl DeviceTrait for State {
   #[inline(always)]
   fn get_device(&self) -> &wgpu::Device {
@@ -173,7 +184,7 @@ impl State {
         // 指定应将着色器中的哪个函数作为 entry_point
         entry_point: "vs_main",
         // buffers 字段用于告知 wgpu 我们要传递给顶点着色器的顶点类型
-        buffers: &[Vertex::desc()],
+        buffers: &[Vertex::desc(), InstanceRaw::desc()],
       },
       // primitive 字段描述了应如何将我们所提供的顶点数据转为三角形
       wgpu::PrimitiveState {
@@ -203,7 +214,7 @@ impl State {
         // 抗锯齿
         alpha_to_coverage_enabled: false,
       },
-      Some(wgpu::FragmentState {
+      wgpu::FragmentState {
         module: &shader,
         // 指定应将着色器中的哪个函数作为 entry_point
         entry_point: "fs_main",
@@ -215,7 +226,7 @@ impl State {
           // 要求 wgpu 写入所有像素通道的颜色，即红、蓝、绿和 alpha
           write_mask: wgpu::ColorWrites::ALL,
         })],
-      }),
+      },
       None,
     );
     let vertex_buffer = device.create_buffer_init(
@@ -230,6 +241,30 @@ impl State {
     );
     let num_indices = INDICES.len() as u32;
 
+    let instances = (0..NUM_INSTANCES_PER_ROW)
+      .flat_map(|z| {
+        (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+          let position = na::Point3::new(x as f32, 0.0, z as f32);
+          let rotation = if position.xyz() == na::Point3::new(0.0, 0.0, 0.0) {
+            // 需要这行特殊处理，这样在 (0, 0, 0) 的物体不会被缩放到 0
+            // 因为错误的四元数会影响到缩放
+            na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.0_f32.to_radians())
+          } else {
+            na::UnitQuaternion::from_axis_angle(
+              &na::Unit::new_unchecked(position.coords.normalize()),
+              45.0_f32.to_radians(),
+            )
+          };
+          Instance { position, rotation }
+        })
+      })
+      .collect::<Vec<_>>();
+    let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+    let instance_buffer = device.create_buffer_init(
+      "Instance Buffer",
+      bytemuck::cast_slice(&instance_data),
+      wgpu::BufferUsages::VERTEX,
+    );
     Ok(Self {
       surface,
       device: device.take(),
@@ -247,6 +282,8 @@ impl State {
       camera_uniform,
       camera_buffer,
       camera_bind_group,
+      instances,
+      instance_buffer,
     })
   }
 
@@ -333,8 +370,9 @@ impl State {
     render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
     render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
     render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-    render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+    render_pass.draw_indexed(0..self.num_indices, 0,  0..self.instances.len() as _);
     drop(render_pass);
 
     // submit 方法能传入任何实现了 IntoIter 的参数

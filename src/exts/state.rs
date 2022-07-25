@@ -89,7 +89,7 @@ pub trait DeviceTrait {
     primitive: PrimitiveState,
     depth_stencil: Option<DepthStencilState>,
     multisample: MultisampleState,
-    fragment: Option<FragmentState<'a>>,
+    fragment: FragmentState<'a>,
     multiview: Option<NonZeroU32>,
   ) -> RenderPipeline {
     self
@@ -101,7 +101,7 @@ pub trait DeviceTrait {
         primitive,
         depth_stencil,
         multisample,
-        fragment,
+        fragment: Some(fragment),
         multiview,
       })
   }
