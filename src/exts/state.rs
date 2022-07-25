@@ -5,28 +5,23 @@ use wgpu::{
   *,
 };
 
-pub struct DeviceWarp {
-  pub inner: wgpu::Device,
+pub struct DeviceWarp<'a> {
+  pub inner: &'a wgpu::Device,
 }
-impl From<Device> for DeviceWarp {
-  fn from(v: Device) -> Self {
-    Self { inner: v }
+impl DeviceWarp<'_> {
+  pub fn wrap<'a>(inner: &'a wgpu::Device) -> DeviceWarp<'a> {
+    DeviceWarp { inner }
   }
 }
-impl DeviceTrait for DeviceWarp {
+impl DeviceTrait for DeviceWarp<'_> {
   #[inline(always)]
   fn get_device(&self) -> &wgpu::Device {
     &self.inner
   }
-
-  #[inline(always)]
-  fn take(self) -> wgpu::Device {
-    self.inner
-  }
 }
+
 pub trait DeviceTrait {
   fn get_device(&self) -> &wgpu::Device;
-  fn take(self) -> wgpu::Device;
   #[inline(always)]
   fn create_bind_group_layout<'a>(
     &self,
