@@ -4,10 +4,11 @@ pub mod geom;
 pub mod input;
 pub mod instance;
 pub mod log;
+pub mod model;
+pub mod res;
 pub mod state;
 pub mod texture;
 pub mod time;
-pub mod vertex;
 
 use color_eyre::eyre::Result;
 use state::State;

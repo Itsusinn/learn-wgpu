@@ -43,7 +43,7 @@ pub trait DeviceTrait {
     entries: &'a [BindGroupEntry<'a>],
   ) -> BindGroup {
     self.get_device().create_bind_group(&BindGroupDescriptor {
-      label: Some(label),
+      label: if label.is_empty() { None } else { Some(label) },
       layout,
       entries,
     })

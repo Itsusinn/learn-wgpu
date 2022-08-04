@@ -14,8 +14,8 @@ use crate::{
     camera::{Camera, CameraUniform},
   },
   instance::{self, Instance, InstanceRaw},
-  texture,
-  vertex::{Vertex, INDICES, VERTICES},
+  model::{self, VertexTrait},
+  res, texture,
 };
 
 pub struct State {
@@ -25,13 +25,8 @@ pub struct State {
   config: wgpu::SurfaceConfiguration,
   pub size: winit::dpi::PhysicalSize<u32>,
   render_pipeline: wgpu::RenderPipeline,
-  vertex_buffer: wgpu::Buffer,
-
+  obj_model: model::Model,
   clear_color: na::Vector3<f64>,
-  index_buffer: wgpu::Buffer,
-  num_indices: u32,
-  diffuse_bind_group: wgpu::BindGroup,
-  diffuse_texture: texture::Texture,
   camera: geom::camera::Camera,
   camera_uniform: CameraUniform,
   camera_buffer: wgpu::Buffer,
@@ -43,11 +38,6 @@ pub struct State {
   depth_texture: texture::Texture,
 }
 const NUM_INSTANCES_PER_ROW: u32 = 10;
-const INSTANCE_DISPLACEMENT: Vector3<f32> = Vector3::new(
-  NUM_INSTANCES_PER_ROW as f32 * 0.5,
-  0.0,
-  NUM_INSTANCES_PER_ROW as f32 * 0.5,
-);
 
 impl DeviceTrait for State {
   #[inline(always)]
@@ -70,7 +60,7 @@ impl State {
       })
       .await
       .unwrap();
-    let (device, queue) = adapter
+    let (rdevice, queue) = adapter
       .request_device(
         &wgpu::DeviceDescriptor {
           label: None,
@@ -80,7 +70,7 @@ impl State {
         None,
       )
       .await?;
-    let device_ = DeviceWarp { inner: &device };
+    let device = DeviceWarp { inner: &rdevice };
     let config = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
       format: surface.get_supported_formats(&adapter)[0],
@@ -88,13 +78,9 @@ impl State {
       height: size.height,
       present_mode: wgpu::PresentMode::Fifo,
     };
-    surface.configure(&device_.inner, &config);
+    surface.configure(&device.inner, &config);
 
-    let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
-    let diffuse_texture =
-      texture::Texture::from_bytes(&device_.inner, &queue, diffuse_bytes, "happy tree")?;
-
-    let texture_bind_group_layout = device_.create_bind_group_layout(
+    let texture_bind_group_layout = device.create_bind_group_layout(
       "texture_bind_group_layout",
       &[
         wgpu::BindGroupLayoutEntry {
@@ -121,31 +107,17 @@ impl State {
         },
       ],
     );
-    let diffuse_bind_group = device_.create_bind_group(
-      "diffuse_bind_group",
-      &texture_bind_group_layout,
-      &[
-        wgpu::BindGroupEntry {
-          binding: 0,
-          resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-        },
-        wgpu::BindGroupEntry {
-          binding: 1,
-          resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-        },
-      ],
-    );
 
     let camera = Camera::new(Point3::new(0.0, 0.0, -2.0));
     let mut camera_uniform = CameraUniform::new();
     camera_uniform.update_view_proj(&camera, config.width as f32 / config.height as f32);
 
-    let camera_buffer = device_.create_buffer_init(
+    let camera_buffer = device.create_buffer_init(
       "Camera Buffer",
       bytemuck::cast_slice(&[camera_uniform]),
       wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     );
-    let camera_bind_group_layout = device_.create_bind_group_layout(
+    let camera_bind_group_layout = device.create_bind_group_layout(
       "camera_bind_group_layout",
       &[wgpu::BindGroupLayoutEntry {
         binding: 0,
@@ -158,7 +130,7 @@ impl State {
         count: None,
       }],
     );
-    let camera_bind_group = device_.create_bind_group(
+    let camera_bind_group = device.create_bind_group(
       "camera_bind_group",
       &camera_bind_group_layout,
       &[wgpu::BindGroupEntry {
@@ -166,15 +138,15 @@ impl State {
         resource: camera_buffer.as_entire_binding(),
       }],
     );
-    let depth_texture = texture::Texture::create_depth_texture(&device_, &config, "depth_texture");
+    let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-    let shader = device_.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
-    let render_pipeline_layout = device_.create_pipeline_layout(
+    let shader = device.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
+    let render_pipeline_layout = device.create_pipeline_layout(
       "Render Pipeline Layout",
       &[&texture_bind_group_layout, &camera_bind_group_layout],
       &[],
     );
-    let render_pipeline = device_.create_render_pipeline(
+    let render_pipeline = device.create_render_pipeline(
       "Render Pipline",
       Some(&render_pipeline_layout),
       wgpu::VertexState {
@@ -182,7 +154,7 @@ impl State {
         // 指定应将着色器中的哪个函数作为 entry_point
         entry_point: "vs_main",
         // buffers 字段用于告知 wgpu 我们要传递给顶点着色器的顶点类型
-        buffers: &[Vertex::desc(), InstanceRaw::desc()],
+        buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
       },
       // primitive 字段描述了应如何将我们所提供的顶点数据转为三角形
       wgpu::PrimitiveState {
@@ -234,21 +206,17 @@ impl State {
       },
       None,
     );
-    let vertex_buffer = device_.create_buffer_init(
-      "Vertex Buffer",
-      bytemuck::cast_slice(VERTICES),
-      wgpu::BufferUsages::VERTEX,
-    );
-    let index_buffer = device_.create_buffer_init(
-      "Index Buffer",
-      bytemuck::cast_slice(INDICES),
-      wgpu::BufferUsages::INDEX,
-    );
-    let num_indices = INDICES.len() as u32;
 
+    let obj_model = res::load_model("cube/cube.obj", &device, &queue, &texture_bind_group_layout)
+      .await
+      .unwrap();
+
+    const SPACE_BETWEEN: f32 = 3.0;
     let instances = (0..NUM_INSTANCES_PER_ROW)
       .flat_map(|z| {
         (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+          let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+          let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
           let position = na::Point3::new(x as f32, 0.0, z as f32);
           let rotation = if position.xyz() == na::Point3::new(0.0, 0.0, 0.0) {
             // 需要这行特殊处理，这样在 (0, 0, 0) 的物体不会被缩放到 0
@@ -265,24 +233,20 @@ impl State {
       })
       .collect::<Vec<_>>();
     let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-    let instance_buffer = device_.create_buffer_init(
+    let instance_buffer = device.create_buffer_init(
       "Instance Buffer",
       bytemuck::cast_slice(&instance_data),
       wgpu::BufferUsages::VERTEX,
     );
     Ok(Self {
       surface,
-      device,
+      device: rdevice,
       queue,
       config,
       size,
       clear_color: na::Vector3::new(0.1, 0.7, 0.2),
       render_pipeline,
-      vertex_buffer,
-      index_buffer,
-      num_indices,
-      diffuse_bind_group,
-      diffuse_texture,
+      obj_model,
       camera,
       camera_uniform,
       camera_buffer,
@@ -298,11 +262,8 @@ impl State {
       self.size = new_size;
       self.config.width = new_size.width;
       self.config.height = new_size.height;
-      self.depth_texture = texture::Texture::create_depth_texture(
-        &DeviceWarp::wrap(&self.device),
-        &self.config,
-        "depth_texture",
-      );
+      self.depth_texture =
+        texture::Texture::create_depth_texture(self, &self.config, "depth_texture");
       self.surface.configure(&self.device, &self.config);
     };
   }
@@ -383,14 +344,19 @@ impl State {
         stencil_ops: None,
       }),
     });
-
-    render_pass.set_pipeline(&self.render_pipeline);
-    render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-    render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
     render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-    render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-    render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+    render_pass.set_pipeline(&self.render_pipeline);
+
+    use model::DrawModel;
+    let mesh = &self.obj_model.meshes[0];
+    let material = &self.obj_model.materials[mesh.material];
+    render_pass.draw_mesh_instanced(
+      mesh,
+      material,
+      0..self.instances.len() as u32,
+      &self.camera_bind_group,
+    );
+
     drop(render_pass);
 
     // submit 方法能传入任何实现了 IntoIter 的参数
