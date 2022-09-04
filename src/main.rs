@@ -1,14 +1,16 @@
-#![feature(backtrace)]
 pub mod exts;
 pub mod geom;
 pub mod input;
 pub mod instance;
-pub mod log;
+pub mod ext;
 pub mod model;
 pub mod res;
 pub mod state;
 pub mod texture;
 pub mod time;
+mod log;
+mod world;
+mod light;
 
 use color_eyre::eyre::Result;
 use state::State;
@@ -18,9 +20,24 @@ use winit::{
   window::WindowBuilder,
 };
 
+#[macro_use]
+extern crate tracing;
+
 #[tokio::main]
 async fn main() -> Result<()> {
-  env_logger::init();
+  #[cfg(debug_assertions)]
+  std::env::set_var("RUST_BACKTRACE", "full");
+  #[cfg(not(debug_assertions))]
+  std::env::set_var("RUST_BACKTRACE", "1");
+
+  if cfg!(feature = "color") {
+    color_eyre::install()?;
+  } else {
+    color_eyre::config::HookBuilder::new()
+      .theme(color_eyre::config::Theme::new())
+      .install()?;
+  }
+  crate::log::init().await?;
   time::get_now();
   let event_loop = EventLoop::new();
   let window = WindowBuilder::new().build(&event_loop)?;
@@ -35,8 +52,7 @@ async fn main() -> Result<()> {
         return;
       }
       match event {
-        WindowEvent::CloseRequested
-        | WindowEvent::KeyboardInput {
+        WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
           input:
             KeyboardInput {
               state: ElementState::Pressed,

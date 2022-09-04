@@ -1,6 +1,5 @@
 use std::{ops::Range, path::Path};
 
-use color_eyre::eyre::{ContextCompat, Result};
 use na::{Point2, Point3, Vector3};
 use tobj::LoadOptions;
 use wgpu::{vertex_attr_array, VertexAttribute};

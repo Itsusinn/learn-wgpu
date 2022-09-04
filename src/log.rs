@@ -1,23 +1,32 @@
+use chrono::{Local, Offset, TimeZone};
 use color_eyre::eyre::Result;
+use tracing::Level;
+use tracing_error::ErrorLayer;
+use tracing_subscriber::{layer::SubscriberExt, prelude::*};
 
-pub trait LogResultExt<T> {
-  fn log_if_error(self, message: &str) -> Option<T>;
-}
+pub(crate) async fn init() -> Result<()> {
+  let filter = tracing_subscriber::filter::Targets::new()
+    .with_target("learn_wgpu", Level::TRACE)
+    .with_default(Level::WARN);
 
-impl<T> LogResultExt<T> for Result<T> {
-  #[inline(always)]
-  fn log_if_error(self, message: &str) -> Option<T> {
-    match self {
-      Ok(v) => Some(v),
-      Err(e) => {
-        log::error!(
-          "{}, ErrorType {}\n Backtrace {:#?}",
-          message,
-          e,
-          e.backtrace()
-        );
-        None
-      }
-    }
-  }
+  let registry = tracing_subscriber::registry();
+
+  registry
+    .with(filter)
+    .with(ErrorLayer::default())
+    .with(
+      tracing_subscriber::fmt::layer()
+        .with_target(true)
+        .with_timer(tracing_subscriber::fmt::time::OffsetTime::new(
+          time::UtcOffset::from_whole_seconds(
+            Local.timestamp(0, 0).offset().fix().local_minus_utc(),
+          )
+          .unwrap_or(time::UtcOffset::UTC),
+          time::macros::format_description!(
+            "[year repr:last_two]-[month]-[day] [hour]:[minute]:[second]"
+          ),
+        )),
+    )
+    .try_init()?;
+  Ok(())
 }
