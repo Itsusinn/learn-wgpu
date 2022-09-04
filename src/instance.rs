@@ -1,4 +1,4 @@
-use na::{Matrix3, Matrix4, Point3, Quaternion, Rotation3, UnitQuaternion};
+use na::{Matrix4, Point3, UnitQuaternion};
 
 pub struct Instance {
   pub position: Point3<f32>,

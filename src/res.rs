@@ -1,34 +1,41 @@
-use std::io::{BufReader, Cursor};
+use std::{io::{BufReader, Cursor}, path::Path};
 
 use color_eyre::eyre::Result;
 
 use crate::{exts::state::DeviceTrait, model, texture};
-pub async fn load_str(filename: &str) -> Result<String> {
-  let path = std::path::Path::new(env!("OUT_DIR"))
+
+#[instrument]
+pub async fn load_str(filepath: &Path) -> Result<String> {
+  debug!("loading file {}", filepath.display());
+  let filepath = std::path::Path::new(env!("OUT_DIR"))
     .join("assets")
-    .join(filename);
-  let text = tokio::fs::read_to_string(path).await?;
+    .join(filepath);
+
+  let text = tokio::fs::read_to_string(filepath).await?;
   Ok(text)
 }
 
-pub async fn load_binary(filename: &str) -> Result<Vec<u8>> {
-  let path = std::path::Path::new(env!("OUT_DIR"))
+#[instrument]
+pub async fn load_binary(filepath: &Path) -> Result<Vec<u8>> {
+  debug!("loading file {}", filepath.display());
+  let filepath = std::path::Path::new(env!("OUT_DIR"))
     .join("assets")
-    .join(filename);
-  let data = tokio::fs::read(path).await?;
+    .join(filepath);
+
+  let data = tokio::fs::read(filepath).await?;
   Ok(data)
 }
 pub async fn load_texture<T: DeviceTrait>(
-  filename: &str,
+  filename: &Path,
   device: &T,
   queue: &wgpu::Queue,
 ) -> Result<texture::Texture> {
   let data = load_binary(filename).await?;
-  texture::Texture::from_bytes(device, queue, &data, filename)
+  texture::Texture::from_bytes(device, queue, &data, &filename.to_string_lossy())
 }
 
 pub async fn load_model<T: DeviceTrait>(
-  filename: &str,
+  filename: &Path,
   device: &T,
   queue: &wgpu::Queue,
   layout: &wgpu::BindGroupLayout,
@@ -44,14 +51,16 @@ pub async fn load_model<T: DeviceTrait>(
       ..Default::default()
     },
     |p| async move {
-      let mat_text = load_str(&p).await.unwrap();
+      let parent = Path::new(filename).parent().unwrap();
+      let mat_text = load_str(parent.join(&p).as_path()).await.unwrap();
       tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
     },
   )
   .await?;
   let mut materials = Vec::new();
+  let parent = filename.parent().unwrap();
   for m in obj_materials? {
-    let diffuse_texture = load_texture(&m.diffuse_texture, device, queue).await?;
+    let diffuse_texture = load_texture(parent.join(&m.diffuse_texture).as_path(), device, queue).await?;
     let bind_group = device.create_bind_group(
       "",
       layout,
@@ -92,17 +101,17 @@ pub async fn load_model<T: DeviceTrait>(
         .collect::<Vec<_>>();
 
       let vertex_buffer = device.create_buffer_init(
-        &format!("{} Vertex Buffer", filename),
+        &format!("{} Vertex Buffer", filename.display()),
         bytemuck::cast_slice(&vertices),
         wgpu::BufferUsages::VERTEX,
       );
       let index_buffer = device.create_buffer_init(
-        &format!("{} Index Buffer", filename),
+        &format!("{} Index Buffer", filename.display()),
         bytemuck::cast_slice(&m.mesh.indices),
         wgpu::BufferUsages::INDEX,
       );
       model::Mesh {
-        name: filename.to_string(),
+        name: filename.to_string_lossy().to_string(),
         vertex_buffer,
         index_buffer,
         num_elements: m.mesh.indices.len() as u32,

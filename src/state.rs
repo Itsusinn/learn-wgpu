@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use color_eyre::eyre::Result;
 use na::{Point3, Vector3};
 use wgpu::{include_wgsl, Backends};
@@ -207,7 +209,7 @@ impl State {
       None,
     );
 
-    let obj_model = res::load_model("cube/cube.obj", &device, &queue, &texture_bind_group_layout)
+    let obj_model = res::load_model(Path::new("cube/cube.obj"), &device, &queue, &texture_bind_group_layout)
       .await
       .unwrap();
 
