@@ -1,7 +1,5 @@
-use std::path::Path;
-
 use color_eyre::eyre::Result;
-use na::{Point3, Vector3};
+use na::Point3;
 use wgpu::{include_wgsl, Backends};
 // lib.rs
 use winit::{
@@ -15,31 +13,35 @@ use crate::{
     self,
     camera::{Camera, CameraUniform},
   },
-  instance::{self, Instance, InstanceRaw},
-  model::{self, VertexTrait},
-  res, texture,
+  texture,
+  world::{self, Chunk},
 };
 
 pub struct State {
   surface: wgpu::Surface,
   device: wgpu::Device,
   queue: wgpu::Queue,
+
   config: wgpu::SurfaceConfiguration,
+
   pub size: winit::dpi::PhysicalSize<u32>,
   render_pipeline: wgpu::RenderPipeline,
-  obj_model: model::Model,
+
+  texture_bind_group: wgpu::BindGroup,
+  diffuse_texture: texture::Texture,
+
+  depth_texture: texture::Texture,
+
+  vertex_buf: wgpu::Buffer,
+  index_buf: wgpu::Buffer,
+  index_count: usize,
+
   clear_color: na::Vector3<f64>,
   camera: geom::camera::Camera,
   camera_uniform: CameraUniform,
   camera_buffer: wgpu::Buffer,
   camera_bind_group: wgpu::BindGroup,
-
-  instances: Vec<instance::Instance>,
-  instance_buffer: wgpu::Buffer,
-
-  depth_texture: texture::Texture,
 }
-const NUM_INSTANCES_PER_ROW: u32 = 10;
 
 impl DeviceTrait for State {
   #[inline(always)]
@@ -82,6 +84,9 @@ impl State {
     };
     surface.configure(&device.inner, &config);
 
+    let diffuse_texture_bytes = include_bytes!("../assets/block/block.up.png");
+    let diffuse_texture =
+      texture::Texture::new_cube_array(&device, &queue, diffuse_texture_bytes, "block")?;
     let texture_bind_group_layout = device.create_bind_group_layout(
       "texture_bind_group_layout",
       &[
@@ -90,7 +95,7 @@ impl State {
           visibility: wgpu::ShaderStages::FRAGMENT,
           ty: wgpu::BindingType::Texture {
             multisampled: false,
-            view_dimension: wgpu::TextureViewDimension::D2,
+            view_dimension: wgpu::TextureViewDimension::CubeArray,
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
           },
           count: None,
@@ -106,6 +111,20 @@ impl State {
             wgpu::SamplerBindingType::Filtering,
           ),
           count: None,
+        },
+      ],
+    );
+    let texture_bind_group = device.create_bind_group(
+      "texture_bind_group",
+      &texture_bind_group_layout,
+      &[
+        wgpu::BindGroupEntry {
+          binding: 0,
+          resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+        },
+        wgpu::BindGroupEntry {
+          binding: 1,
+          resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
         },
       ],
     );
@@ -140,7 +159,6 @@ impl State {
         resource: camera_buffer.as_entire_binding(),
       }],
     );
-    let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
     let shader = device.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
     let render_pipeline_layout = device.create_pipeline_layout(
@@ -156,7 +174,7 @@ impl State {
         // 指定应将着色器中的哪个函数作为 entry_point
         entry_point: "vs_main",
         // buffers 字段用于告知 wgpu 我们要传递给顶点着色器的顶点类型
-        buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
+        buffers: &[world::Vertex::desc()],
       },
       // primitive 字段描述了应如何将我们所提供的顶点数据转为三角形
       wgpu::PrimitiveState {
@@ -208,38 +226,21 @@ impl State {
       },
       None,
     );
+    let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+    let chunk = Chunk::random();
 
-    let obj_model = res::load_model(Path::new("cube/cube.obj"), &device, &queue, &texture_bind_group_layout)
-      .await
-      .unwrap();
-
-    const SPACE_BETWEEN: f32 = 3.0;
-    let instances = (0..NUM_INSTANCES_PER_ROW)
-      .flat_map(|z| {
-        (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-          let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-          let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-          let position = na::Point3::new(x as f32, 0.0, z as f32);
-          let rotation = if position.xyz() == na::Point3::new(0.0, 0.0, 0.0) {
-            // 需要这行特殊处理，这样在 (0, 0, 0) 的物体不会被缩放到 0
-            // 因为错误的四元数会影响到缩放
-            na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.0_f32.to_radians())
-          } else {
-            na::UnitQuaternion::from_axis_angle(
-              &na::Unit::new_unchecked(position.coords.normalize()),
-              45.0_f32.to_radians(),
-            )
-          };
-          Instance { position, rotation }
-        })
-      })
-      .collect::<Vec<_>>();
-    let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-    let instance_buffer = device.create_buffer_init(
-      "Instance Buffer",
-      bytemuck::cast_slice(&instance_data),
+    let vertex_buf = device.create_buffer_init(
+      "Vertex Buffer",
+      &chunk.to_bytes(),
       wgpu::BufferUsages::VERTEX,
     );
+
+    let index_buf = device.create_buffer_init(
+      "Index Buffer",
+      &world::gen_indices(),
+      wgpu::BufferUsages::INDEX,
+    );
+
     Ok(Self {
       surface,
       device: rdevice,
@@ -248,14 +249,16 @@ impl State {
       size,
       clear_color: na::Vector3::new(0.1, 0.7, 0.2),
       render_pipeline,
-      obj_model,
       camera,
       camera_uniform,
       camera_buffer,
       camera_bind_group,
-      instances,
-      instance_buffer,
       depth_texture,
+      texture_bind_group,
+      diffuse_texture,
+      vertex_buf,
+      index_buf,
+      index_count: 36 * 16 * 16 * 16,
     })
   }
 
@@ -346,18 +349,13 @@ impl State {
         stencil_ops: None,
       }),
     });
-    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-    render_pass.set_pipeline(&self.render_pipeline);
 
-    use model::DrawModel;
-    let mesh = &self.obj_model.meshes[0];
-    let material = &self.obj_model.materials[mesh.material];
-    render_pass.draw_mesh_instanced(
-      mesh,
-      material,
-      0..self.instances.len() as u32,
-      &self.camera_bind_group,
-    );
+    render_pass.set_pipeline(&self.render_pipeline);
+    render_pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+    render_pass.set_index_buffer(self.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+    render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
+    render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+    render_pass.draw_indexed(0..self.index_count as u32, 0, 0..1);
 
     drop(render_pass);
 

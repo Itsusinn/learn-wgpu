@@ -1,8 +1,6 @@
-use color_eyre::eyre::Result;
-
 use std::fmt::Debug;
 
-use color_eyre::eyre::ErrReport;
+use color_eyre::eyre::{ErrReport, Result};
 
 pub trait EyreExt<E> {
   fn to_eyre(self) -> ErrReport;

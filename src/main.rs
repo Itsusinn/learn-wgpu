@@ -1,16 +1,18 @@
+#![feature(const_for, const_mut_refs, box_syntax, core_intrinsics)]
+pub mod ext;
 pub mod exts;
 pub mod geom;
 pub mod input;
 pub mod instance;
-pub mod ext;
-pub mod model;
+mod light;
+mod log;
+// pub mod model;
+mod byteops;
 pub mod res;
 pub mod state;
 pub mod texture;
 pub mod time;
-mod log;
 mod world;
-mod light;
 
 use color_eyre::eyre::Result;
 use state::State;
@@ -52,7 +54,8 @@ async fn main() -> Result<()> {
         return;
       }
       match event {
-        WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
+        WindowEvent::CloseRequested
+        | WindowEvent::KeyboardInput {
           input:
             KeyboardInput {
               state: ElementState::Pressed,
