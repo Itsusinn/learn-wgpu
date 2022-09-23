@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use color_eyre::eyre::Result;
 use na::Point3;
 use wgpu::{include_wgsl, Backends};
@@ -84,9 +86,8 @@ impl State {
     };
     surface.configure(&device.inner, &config);
 
-    let diffuse_texture_bytes = include_bytes!("../assets/block/block.up.png");
     let diffuse_texture =
-      texture::Texture::new_cube_array(&device, &queue, diffuse_texture_bytes, "block")?;
+      texture::Texture::new_cube_array(&device, &queue, "./assets/block/", "block")?;
     let texture_bind_group_layout = device.create_bind_group_layout(
       "texture_bind_group_layout",
       &[
@@ -183,7 +184,7 @@ impl State {
         strip_index_format: None,
         // front_face 和 cull_mode 字段告诉 wgpu 应如何确定某个三角形是否朝前
         // FrontFace::Ccw 表示如果顶点按逆时针方向排列，则判定三角形是朝前的
-        front_face: wgpu::FrontFace::Ccw,
+        front_face: wgpu::FrontFace::Cw,
         // 不满足朝前条件的三角形会被剔除（即不被渲染），这是用 CullMode::Back 所确定的
         cull_mode: Some(wgpu::Face::Back),
         // cull_mode: None,

@@ -1,9 +1,11 @@
 use std::mem;
 
 use bytemuck::{Pod, Zeroable};
-use na::Vector3;
+use na::{Vector3, Vector4};
 
 use crate::byteops;
+
+const SIZE: usize = 16;
 
 pub struct Chunk {
   blocks: Vec<Block>, // blocks: [Block; 16 * 16 * 16],
@@ -21,7 +23,7 @@ pub struct Vertex {
 }
 // https://github.com/rust-lang/rust/issues/92476
 pub fn gen_indices() -> Vec<u8> {
-  let mut res = Vec::with_capacity(36 * 16 * 16 * 16);
+  let mut res = Vec::with_capacity(36 * SIZE * SIZE * SIZE);
   for index in 0..16 * 16 * 16u32 {
     for num in gen_indices_base(index * 32) {
       res.push(num)
@@ -72,16 +74,16 @@ impl Chunk {
   pub fn random() -> Chunk {
     let mut blocks: Vec<Block> = Vec::with_capacity(16 * 16 * 16);
 
-    for z in 0..=15u8 {
-      for y in 0..=15u8 {
-        for x in 0..=15u8 {
-          let index = (z as usize * 16 * 16) + (y as usize * 16) + x as usize;
+    for z in 0..=15usize {
+      for y in 0..=15usize {
+        for x in 0..=15usize {
+          let index = (z * 16 * 16) + (y * 16) + x as usize;
           debug_assert_eq!(index, blocks.len());
           blocks.push(Block::new_with_index(
             &Vector3::<f32>::new(0.0, 0.0, 0.0),
-            x,
-            y,
-            z,
+            x as u8,
+            y as u8,
+            z as u8,
           ));
         }
       }
@@ -99,77 +101,77 @@ fn size() {
 impl Block {
   pub fn new_with_index(base: &Vector3<f32>, index_x: u8, index_y: u8, index_z: u8) -> Self {
     debug_assert!(index_x < 16 && index_y < 16 && index_z < 16);
-    // Down-Front-Left
+    // 0 Down-Front-Left
     let mut position1 = base.to_owned();
     position1.x = position1.x + index_x as f32;
     position1.y = position1.y + index_y as f32;
     position1.z = position1.z + index_z as f32;
     let position1 = Vertex {
       position: position1,
-      tex_coords: Vector3::<f32>::new(0.0, 0.0, 0.0),
+      tex_coords: Vector3::<f32>::new(-1.0, -1.0, -1.0),
     };
-    // Down-Front-Right
+    // 1 Down-Front-Right
     let mut position2 = base.to_owned();
     position2.x = position2.x + index_x as f32 + 1.0;
     position2.y = position2.y + index_y as f32;
     position2.z = position2.z + index_z as f32;
     let position2 = Vertex {
       position: position2,
-      tex_coords: Vector3::<f32>::new(1.0, 0.0, 0.0),
+      tex_coords: Vector3::<f32>::new(1.0, -1.0, -1.0),
     };
-    // Down-Back-Right
+    // 2 Down-Back-Right
     let mut position3 = base.to_owned();
     position3.x = position3.x + index_x as f32 + 1.0;
     position3.y = position3.y + index_y as f32;
     position3.z = position3.z + index_z as f32 + 1.0;
     let position3 = Vertex {
       position: position3,
-      tex_coords: Vector3::<f32>::new(1.0, 1.0, 0.0),
+      tex_coords: Vector3::<f32>::new(1.0, -1.0, 1.0),
     };
-    // Down-Back-Left
+    // 3 Down-Back-Left
     let mut position4 = base.to_owned();
     position4.x = position4.x + index_x as f32;
     position4.y = position4.y + index_y as f32;
     position4.z = position4.z + index_z as f32 + 1.0;
     let position4 = Vertex {
       position: position4,
-      tex_coords: Vector3::<f32>::new(0.0, 1.0, 0.0),
+      tex_coords: Vector3::<f32>::new(-1.0, -1.0, 1.0),
     };
-    // Up-Front-Left
+    // 4 Up-Front-Left
     let mut position5 = base.to_owned();
     position5.x = position5.x + index_x as f32;
     position5.y = position5.y + index_y as f32 + 1.0;
     position5.z = position5.z + index_z as f32;
     let position5 = Vertex {
       position: position5,
-      tex_coords: Vector3::<f32>::new(1.0, 0.0, 1.0),
+      tex_coords: Vector3::<f32>::new(-1.0, 1.0, -1.0),
     };
-    // Up-Front-Right
+    // 5 Up-Front-Right
     let mut position6 = base.to_owned();
     position6.x = position6.x + index_x as f32 + 1.0;
     position6.y = position6.y + index_y as f32 + 1.0;
     position6.z = position6.z + index_z as f32;
     let position6 = Vertex {
       position: position6,
-      tex_coords: Vector3::<f32>::new(1.0, 0.0, 1.0),
+      tex_coords: Vector3::<f32>::new(1.0, 1.0, -1.0),
     };
-    // Up-Back-Right
+    // 6 Up-Back-Right
     let mut position7 = base.to_owned();
     position7.x = position7.x + index_x as f32 + 1.0;
     position7.y = position7.y + index_y as f32 + 1.0;
     position7.z = position7.z + index_z as f32 + 1.0;
     let position7 = Vertex {
       position: position7,
-      tex_coords: Vector3::<f32>::new(1.0, 0.0, 1.0),
+      tex_coords: Vector3::<f32>::new(1.0, 1.0, 1.0),
     };
-    // Up-Back-Left
+    // 7 Up-Back-Left
     let mut position8 = base.to_owned();
     position8.x = position8.x + index_x as f32;
     position8.y = position8.y + index_y as f32 + 1.0;
     position8.z = position8.z + index_z as f32 + 1.0;
     let position8 = Vertex {
       position: position8,
-      tex_coords: Vector3::<f32>::new(1.0, 0.0, 1.0),
+      tex_coords: Vector3::<f32>::new(-1.0, 1.0, 1.0),
     };
     let points = [
       position1, position2, position3, position4, position5, position6, position7, position8,
@@ -180,7 +182,7 @@ impl Block {
 
 impl Vertex {
   const ATTRIBS: [wgpu::VertexAttribute; 2] =
-    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
 
   pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
     wgpu::VertexBufferLayout {

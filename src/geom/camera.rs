@@ -98,7 +98,7 @@ impl Camera {
 
   pub fn handle_input(&mut self) {
     let (dx, dy) = input::fetch_motion();
-    let rate = time::get_delta() * 10.0;
+    let rate = time::get_delta() * 100.0;
     if dx != 0 {
       self.turn_right_and_left((dx as f32) / 10.0);
     }

@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::io::Cursor;
+use image::io::Reader as ImageReader;
 
 use color_eyre::eyre::Result;
 use image::GenericImageView;
@@ -38,12 +40,12 @@ impl Texture {
   pub fn new_cube_array<T: DeviceTrait>(
     device: &T,
     queue: &wgpu::Queue,
-    bytes: &[u8],
+    path: &str,
     label: &str,
   ) -> Result<Self> {
-    let img = image::load_from_memory(bytes)?;
-    let rgba = img.to_rgba8();
-    let dimensions = img.dimensions();
+    let up = ImageReader::open(format!("{path}up.png"))?.decode()?;
+
+    let dimensions = up.dimensions();
     // 所有纹理都会以三维数组形式存储，我们通过设置深度为 1 来表示这是二维的纹理
     let layer_size = wgpu::Extent3d {
       width: dimensions.0,
@@ -74,17 +76,31 @@ impl Texture {
         label: Some(label),
       });
 
-    for _face in 0..=5u32 {
+    for face in 0..=5u32 {
+      let face_rgba = match face {
+          0 => ImageReader::open(format!("{path}left.png"))?.decode()?.to_rgba8(),
+          1 => ImageReader::open(format!("{path}right.png"))?.decode()?.to_rgba8(),
+          2 => ImageReader::open(format!("{path}up.png"))?.decode()?.to_rgba8(),
+          3 => ImageReader::open(format!("{path}down.png"))?.decode()?.to_rgba8(),
+          4 => ImageReader::open(format!("{path}front.png"))?.decode()?.to_rgba8(),
+          5 => ImageReader::open(format!("{path}back.png"))?.decode()?.to_rgba8(),
+          _ => unreachable!()
+      };
       queue.write_texture(
         // 告诉 wgpu 从何处复制像素数据
         wgpu::ImageCopyTexture {
           texture: &texture,
           mip_level: 0,
-          origin: wgpu::Origin3d::default(),
+          origin: wgpu::Origin3d{
+            x: 0,
+            y: 0,
+            z: face,
+          },
           aspect: wgpu::TextureAspect::All,
         },
+
         // 实际的像素数据
-        &rgba,
+        &face_rgba,
         // 纹理的内存布局
         wgpu::ImageDataLayout {
           offset: 0,
@@ -112,8 +128,8 @@ impl Texture {
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
         ..Default::default()
       });
     Ok(Self {
