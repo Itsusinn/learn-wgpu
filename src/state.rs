@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use color_eyre::eyre::Result;
 use na::Point3;
 use wgpu::{include_wgsl, Backends};
@@ -87,7 +85,7 @@ impl State {
     surface.configure(&device.inner, &config);
 
     let diffuse_texture =
-      texture::Texture::new_cube_array(&device, &queue, "./assets/block/", "block")?;
+      texture::Texture::read_cubemaps(&device, &queue, "cubemap array").await?;
     let texture_bind_group_layout = device.create_bind_group_layout(
       "texture_bind_group_layout",
       &[

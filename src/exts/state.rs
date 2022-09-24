@@ -5,6 +5,7 @@ use wgpu::{
   *,
 };
 
+#[derive(Debug)]
 pub struct DeviceWarp<'a> {
   pub inner: &'a wgpu::Device,
 }
@@ -99,5 +100,26 @@ pub trait DeviceTrait {
         fragment: Some(fragment),
         multiview,
       })
+  }
+  #[inline(always)]
+  fn create_texture(
+    &self,
+    label: &str,
+    size: Extent3d,
+    mip_level_count: u32,
+    sample_count: u32,
+    dimension: TextureDimension,
+    format: TextureFormat,
+    usage: TextureUsages,
+  ) -> Texture {
+    self.get_device().create_texture(&TextureDescriptor {
+      label: Some(label),
+      size,
+      mip_level_count,
+      sample_count,
+      dimension,
+      format,
+      usage,
+    })
   }
 }
