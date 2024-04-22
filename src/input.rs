@@ -91,12 +91,12 @@ pub fn handle_window_event(event: &WindowEvent) {
     //   MOUSE.store_motion(delta.0, delta.1);
     // }
     WindowEvent::KeyboardInput {
-      device_id,
+      device_id: _,
       event:
         KeyEvent {
           state,
           physical_key: PhysicalKey::Code(keycode),
-          logical_key,
+          logical_key: _,
           ..
         },
       ..

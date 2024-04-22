@@ -30,13 +30,8 @@ async fn main() -> Result<()> {
   #[cfg(not(debug_assertions))]
   std::env::set_var("RUST_BACKTRACE", "1");
 
-
   color_eyre::install()?;
-  // } else {
-  //   color_eyre::config::HookBuilder::new()
-  //     .theme(color_eyre::config::Theme::new())
-  //     .install()?;
-  // }
+
   crate::log::init().await?;
   time::get_now();
   let event_loop = EventLoop::new()?;
@@ -52,7 +47,7 @@ async fn main() -> Result<()> {
       // handle mouse input
       input::handle_device_event(&event)
     }
-    Event::WindowEvent { event, window_id } if window_id == window.id() => {
+    Event::WindowEvent { event, window_id: _ } => {
       // handle keyboarc input
       input::handle_window_event(&event);
       match event {
@@ -86,6 +81,8 @@ async fn main() -> Result<()> {
             // 所有其他错误（如过时、超时等）都应在下一帧解决
             Err(e) => eprintln!("{:?}", e),
           }
+          // 除非手动请求，否则 RedrawRequested 只会触发一次
+          window.request_redraw();
         }
         _ => {}
       }
