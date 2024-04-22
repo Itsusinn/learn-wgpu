@@ -5,13 +5,16 @@ use std::{
 
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
-use winit::event::{DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode as Keycode};
+use winit::{
+  event::{DeviceEvent, ElementState, KeyEvent, WindowEvent},
+  keyboard::{KeyCode, PhysicalKey},
+};
 
 use crate::time;
 
 static KEYMAP: Lazy<KeyMap> = Lazy::new(|| KeyMap::new());
 static MOUSE: Lazy<Mouse> = Lazy::new(|| Mouse::new());
-static COOLDOWN_MAP: Lazy<DashMap<Keycode, f32>> = Lazy::new(|| DashMap::new());
+static COOLDOWN_MAP: Lazy<DashMap<KeyCode, f32>> = Lazy::new(|| DashMap::new());
 
 struct Mouse {
   dx: AtomicI32,
@@ -31,7 +34,7 @@ impl Mouse {
   }
 }
 struct KeyMap {
-  inner: DashMap<Keycode, bool>,
+  inner: DashMap<KeyCode, bool>,
 }
 impl KeyMap {
   fn new() -> Self {
@@ -41,9 +44,9 @@ impl KeyMap {
   }
 }
 impl Deref for KeyMap {
-  type Target = DashMap<Keycode, bool>;
+  type Target = DashMap<KeyCode, bool>;
 
-  fn deref(&self) -> &DashMap<Keycode, bool> {
+  fn deref(&self) -> &DashMap<KeyCode, bool> {
     &self.inner
   }
 }
@@ -53,14 +56,14 @@ pub fn fetch_motion() -> (i32, i32) {
   let dy = MOUSE.dy.swap(0, SeqCst);
   (dx, dy)
 }
-pub fn get_key(keycode: Keycode) -> bool {
+pub fn get_key(keycode: KeyCode) -> bool {
   let pair = KEYMAP.inner.get(&keycode);
   match pair {
     None => return false,
     Some(pair) => return *pair,
   }
 }
-pub fn get_key_with_cooldown(keycode: Keycode, cooltime: f32) -> bool {
+pub fn get_key_with_cooldown(keycode: KeyCode, cooltime: f32) -> bool {
   let tv = get_key(keycode);
   // 若按键本就未按下，则返回false
   if !tv {
@@ -82,17 +85,22 @@ pub fn get_key_with_cooldown(keycode: Keycode, cooltime: f32) -> bool {
     }
   }
 }
-pub fn handle_input(event: &DeviceEvent) {
+pub fn handle_window_event(event: &WindowEvent) {
   match event {
-    DeviceEvent::MouseMotion { delta } => {
-      MOUSE.store_motion(delta.0, delta.1);
-    }
-    DeviceEvent::Key(KeyboardInput {
-      scancode: _,
-      state,
-      virtual_keycode: Some(keycode),
+    // WindowEvent::CursorMoved { delta } => {
+    //   MOUSE.store_motion(delta.0, delta.1);
+    // }
+    WindowEvent::KeyboardInput {
+      device_id,
+      event:
+        KeyEvent {
+          state,
+          physical_key: PhysicalKey::Code(keycode),
+          logical_key,
+          ..
+        },
       ..
-    }) => {
+    } => {
       match state {
         ElementState::Pressed => KEYMAP.insert(keycode.to_owned(), true),
         ElementState::Released => KEYMAP.insert(keycode.to_owned(), false),
@@ -101,3 +109,5 @@ pub fn handle_input(event: &DeviceEvent) {
     _ => {}
   }
 }
+
+pub fn handle_device_event(event: &DeviceEvent) {}

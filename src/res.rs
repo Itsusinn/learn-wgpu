@@ -1,6 +1,10 @@
-use std::{io::{BufReader, Cursor}, path::Path};
+use std::{
+  io::{BufReader, Cursor},
+  path::Path,
+};
 
 use color_eyre::eyre::Result;
+use tracing::{debug, instrument};
 
 use crate::{exts::state::DeviceTrait, model, texture};
 
@@ -60,7 +64,8 @@ pub async fn load_model<T: DeviceTrait>(
   let mut materials = Vec::new();
   let parent = filename.parent().unwrap();
   for m in obj_materials? {
-    let diffuse_texture = load_texture(parent.join(&m.diffuse_texture).as_path(), device, queue).await?;
+    let diffuse_texture =
+      load_texture(parent.join(&m.diffuse_texture).as_path(), device, queue).await?;
     let bind_group = device.create_bind_group(
       "",
       layout,

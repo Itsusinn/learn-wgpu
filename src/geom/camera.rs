@@ -1,5 +1,5 @@
 use na::{Matrix4, Point3, Vector3};
-use winit::event::VirtualKeyCode as Keycode;
+use winit::keyboard::KeyCode;
 
 use crate::{input, time};
 pub struct Camera {
@@ -105,22 +105,22 @@ impl Camera {
     if dy != 0 {
       self.turn_up_and_down((dy as f32) / 10.0);
     }
-    if input::get_key(Keycode::W) {
+    if input::get_key(KeyCode::KeyW) {
       self.move_forward_and_backward(-rate);
     }
-    if input::get_key(Keycode::S) {
+    if input::get_key(KeyCode::KeyS) {
       self.move_forward_and_backward(rate);
     }
-    if input::get_key(Keycode::A) {
+    if input::get_key(KeyCode::KeyA) {
       self.move_left_and_right(-rate);
     }
-    if input::get_key(Keycode::D) {
+    if input::get_key(KeyCode::KeyD) {
       self.move_left_and_right(rate);
     }
-    if input::get_key(Keycode::Space) {
+    if input::get_key(KeyCode::Space) {
       self.move_upward_and_downward(rate);
     }
-    if input::get_key(Keycode::LShift) {
+    if input::get_key(KeyCode::ShiftLeft) {
       self.move_upward_and_downward(-rate);
     }
   }

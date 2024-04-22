@@ -52,6 +52,7 @@ impl Texture {
     let texture = device
       .get_device()
       .create_texture(&wgpu::TextureDescriptor {
+        label,
         // 所有纹理都会以三维数组形式存储，我们通过设置深度为 1 来表示这是二维的纹理
         size,
         mip_level_count: 1, // 我们后面会介绍这里的细节
@@ -62,9 +63,10 @@ impl Texture {
         // TEXTURE_BINDING 告诉 wgpu 我们想在着色器中使用这个纹理
         // COPY_DST 则表示我们想把数据复制到这个纹理
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        label,
+        view_formats: &[],
       });
 
+    // 填充数据到纹理中
     queue.write_texture(
       // 告诉 wgpu 从何处复制像素数据
       wgpu::ImageCopyTexture {
@@ -78,8 +80,8 @@ impl Texture {
       // 纹理的内存布局
       wgpu::ImageDataLayout {
         offset: 0,
-        bytes_per_row: std::num::NonZeroU32::new(4 * dimensions.0),
-        rows_per_image: std::num::NonZeroU32::new(dimensions.1),
+        bytes_per_row: Some(4 * dimensions.0),
+        rows_per_image: Some(dimensions.1),
       },
       size,
     );
@@ -129,6 +131,7 @@ impl Texture {
       format: Self::DEPTH_FORMAT,
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 对这个纹理做渲染，因此需要给它添加 RENDER_ATTACHMENT 配置
             | wgpu::TextureUsages::TEXTURE_BINDING,
+      view_formats: &[],
     };
     let texture = device.create_texture(&desc);
 
@@ -143,7 +146,7 @@ impl Texture {
       min_filter: wgpu::FilterMode::Linear,
       mipmap_filter: wgpu::FilterMode::Nearest,
       compare: Some(wgpu::CompareFunction::LessEqual), // 5.
-      lod_min_clamp: -100.0,
+      lod_min_clamp: 0.0,
       lod_max_clamp: 100.0,
       ..Default::default()
     });

@@ -1,13 +1,9 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use color_eyre::eyre::Result;
-use na::{Point3, Vector3};
+use na::Point3;
 use wgpu::{include_wgsl, Backends};
-// lib.rs
-use winit::{
-  event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
-  window::Window,
-};
+use winit::window::Window;
 
 use crate::{
   exts::state::{DeviceTrait, DeviceWarp},
@@ -21,7 +17,7 @@ use crate::{
 };
 
 pub struct State {
-  surface: wgpu::Surface,
+  surface: wgpu::Surface<'static>,
   device: wgpu::Device,
   queue: wgpu::Queue,
   config: wgpu::SurfaceConfiguration,
@@ -49,11 +45,14 @@ impl DeviceTrait for State {
 }
 impl State {
   // Creating some of the wgpu types requires async code
-  pub async fn new(window: &Window) -> Result<Self> {
+  pub async fn new(window: Arc<Window>) -> Result<Self> {
     let size = window.inner_size();
     // instance is a handle to gpu
-    let instance = wgpu::Instance::new(Backends::all());
-    let surface = unsafe { instance.create_surface(&window) };
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+      backends: wgpu::Backends::all(),
+      ..Default::default()
+    });
+    let surface = instance.create_surface(window.clone())?;
     let adapter = instance
       .request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
@@ -66,19 +65,23 @@ impl State {
       .request_device(
         &wgpu::DeviceDescriptor {
           label: None,
-          features: wgpu::Features::empty(),
-          limits: wgpu::Limits::default(),
+          required_features: wgpu::Features::empty(),
+          required_limits: wgpu::Limits::default(),
         },
         None,
       )
       .await?;
     let device = DeviceWarp { inner: &rdevice };
+    let caps = surface.get_capabilities(&adapter);
     let config = wgpu::SurfaceConfiguration {
       usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-      format: surface.get_supported_formats(&adapter)[0],
+      format: caps.formats[0],
       width: size.width,
       height: size.height,
       present_mode: wgpu::PresentMode::Fifo,
+      alpha_mode: caps.alpha_modes[0],
+      view_formats: vec![],
+      desired_maximum_frame_latency: 2,
     };
     surface.configure(&device.inner, &config);
 
@@ -209,9 +212,14 @@ impl State {
       None,
     );
 
-    let obj_model = res::load_model(Path::new("cube/cube.obj"), &device, &queue, &texture_bind_group_layout)
-      .await
-      .unwrap();
+    let obj_model = res::load_model(
+      Path::new("cube/cube.obj"),
+      &device,
+      &queue,
+      &texture_bind_group_layout,
+    )
+    .await
+    .unwrap();
 
     const SPACE_BETWEEN: f32 = 3.0;
     let instances = (0..NUM_INSTANCES_PER_ROW)
@@ -270,29 +278,6 @@ impl State {
     };
   }
 
-  pub fn input(&mut self, event: &WindowEvent) -> bool {
-    match event {
-      WindowEvent::CursorMoved { position: _, .. } => {
-        // let x = position.x / self.size.width as f64;
-        // let y = position.y / self.size.height as f64;
-        // let z = (position.x + position.y) / (self.size.width +
-        // self.size.height) as f64; self.clear_color =
-        // na::Vector3::new(x, y, z);
-      }
-      WindowEvent::KeyboardInput {
-        input:
-          KeyboardInput {
-            state: ElementState::Pressed,
-            virtual_keycode: Some(VirtualKeyCode::Space),
-            ..
-          },
-        ..
-      } => {}
-      _ => {}
-    }
-    false
-  }
-
   pub fn update(&mut self) {
     self.camera.handle_input();
     self.camera_uniform.update_view_proj(
@@ -334,17 +319,18 @@ impl State {
             a: 1.0,
           }),
           // store 字段用于告知 wgpu 是否应将渲染的结果存储到 TextureView 下层的 Texture
-          store: true,
+          store: wgpu::StoreOp::Store,
         },
       })],
       depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
         view: &self.depth_texture.view,
         depth_ops: Some(wgpu::Operations {
           load: wgpu::LoadOp::Clear(1.0),
-          store: true,
+          store: wgpu::StoreOp::Store,
         }),
         stencil_ops: None,
       }),
+      ..Default::default()
     });
     render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
     render_pass.set_pipeline(&self.render_pipeline);

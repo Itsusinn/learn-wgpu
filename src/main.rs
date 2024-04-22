@@ -1,27 +1,27 @@
+pub mod ext;
 pub mod exts;
 pub mod geom;
 pub mod input;
 pub mod instance;
-pub mod ext;
+mod light;
+mod log;
 pub mod model;
 pub mod res;
 pub mod state;
 pub mod texture;
 pub mod time;
-mod log;
 mod world;
-mod light;
+
+use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use state::State;
 use winit::{
-  event::{VirtualKeyCode as Keycode, *},
-  event_loop::{ControlFlow, EventLoop},
-  window::WindowBuilder,
+  event::*,
+  event_loop::EventLoop,
+  keyboard::{self, KeyCode, NamedKey},
+  window::{CursorGrabMode, WindowBuilder},
 };
-
-#[macro_use]
-extern crate tracing;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,78 +30,79 @@ async fn main() -> Result<()> {
   #[cfg(not(debug_assertions))]
   std::env::set_var("RUST_BACKTRACE", "1");
 
-  if cfg!(feature = "color") {
-    color_eyre::install()?;
-  } else {
-    color_eyre::config::HookBuilder::new()
-      .theme(color_eyre::config::Theme::new())
-      .install()?;
-  }
+
+  color_eyre::install()?;
+  // } else {
+  //   color_eyre::config::HookBuilder::new()
+  //     .theme(color_eyre::config::Theme::new())
+  //     .install()?;
+  // }
   crate::log::init().await?;
   time::get_now();
-  let event_loop = EventLoop::new();
+  let event_loop = EventLoop::new()?;
   let window = WindowBuilder::new().build(&event_loop)?;
-  let mut state = State::new(&window).await?;
+  let window = Arc::new(window);
+  let mut state = State::new(window.clone()).await?;
 
   let mut focus = false;
   let mut cursor_visible = true;
 
-  event_loop.run(move |event, _, control_flow| match event {
+  event_loop.run(move |event, elwt| match event {
+    Event::DeviceEvent { device_id: _, event } => {
+      // handle mouse input
+      input::handle_device_event(&event)
+    }
     Event::WindowEvent { event, window_id } if window_id == window.id() => {
-      if state.input(&event) {
-        return;
-      }
+      // handle keyboarc input
+      input::handle_window_event(&event);
       match event {
-        WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
-          input:
-            KeyboardInput {
+        WindowEvent::CloseRequested
+        | WindowEvent::KeyboardInput {
+          event:
+            KeyEvent {
               state: ElementState::Pressed,
-              virtual_keycode: Some(VirtualKeyCode::Escape),
+              logical_key: keyboard::Key::Named(NamedKey::Escape),
               ..
             },
           ..
-        } => *control_flow = ControlFlow::Exit,
+        } => elwt.exit(),
         WindowEvent::Resized(physical_size) => {
           state.resize(physical_size);
         }
-        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-          state.resize(*new_inner_size);
+        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+          // state.resize(*new_inner_size);
         }
         WindowEvent::Focused(v) => {
           focus = v;
         }
+        WindowEvent::RedrawRequested => {
+          state.update();
+          match state.render() {
+            Ok(_) => {}
+            // 如果发生上下文丢失，就重新配置 surface
+            Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+            // 系统内存不足，此时应该退出
+            Err(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+            // 所有其他错误（如过时、超时等）都应在下一帧解决
+            Err(e) => eprintln!("{:?}", e),
+          }
+        }
         _ => {}
       }
-      if input::get_key_with_cooldown(Keycode::LControl, 0.3) {
+      if input::get_key_with_cooldown(KeyCode::ControlLeft, 0.3) {
         cursor_visible = !cursor_visible;
         window.set_cursor_visible(cursor_visible);
-        window.set_cursor_grab(!cursor_visible).unwrap();
+        if cursor_visible {
+          window.set_cursor_grab(CursorGrabMode::None).unwrap();
+        } else {
+          window
+            .set_cursor_grab(CursorGrabMode::Confined)
+            .or_else(|_| window.set_cursor_grab(CursorGrabMode::Locked))
+            .unwrap();
+        }
       };
     }
-    Event::DeviceEvent {
-      device_id: _,
-      event,
-    } => {
-      if focus {
-        input::handle_input(&event);
-      }
-    }
-    Event::RedrawRequested(window_id) if window_id == window.id() => {
-      state.update();
-      match state.render() {
-        Ok(_) => {}
-        // 如果发生上下文丢失，就重新配置 surface
-        Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-        // 系统内存不足，此时应该退出
-        Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-        // 所有其他错误（如过时、超时等）都应在下一帧解决
-        Err(e) => eprintln!("{:?}", e),
-      }
-    }
-    Event::MainEventsCleared => {
-      // 除非手动请求，否则 RedrawRequested 只会触发一次
-      window.request_redraw();
-    }
     _ => {}
-  });
+  })?;
+  Ok(())
 }
