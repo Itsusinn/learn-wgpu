@@ -19,18 +19,28 @@ static COOLDOWN_MAP: Lazy<DashMap<KeyCode, f32>> = Lazy::new(|| DashMap::new());
 struct Mouse {
   dx: AtomicI32,
   dy: AtomicI32,
+  pos_x: AtomicI32,
+  pos_y: AtomicI32,
 }
 impl Mouse {
   fn new() -> Self {
     Mouse {
       dx: AtomicI32::new(0),
       dy: AtomicI32::new(0),
+      pos_x: AtomicI32::new(0),
+      pos_y: AtomicI32::new(0),
     }
   }
 
   fn store_motion(&self, x: f64, y: f64) {
     self.dx.fetch_add(x as i32, SeqCst);
     self.dy.fetch_add(y as i32, SeqCst);
+  }
+
+  fn update_pos(&self, x:f64,y:f64) {
+    self.pos_x.swap(x as i32, SeqCst);
+    self.pos_y.swap(y as i32, SeqCst);
+    tracing::debug!("x: {x}, y: {y}")
   }
 }
 struct KeyMap {
@@ -87,9 +97,6 @@ pub fn get_key_with_cooldown(keycode: KeyCode, cooltime: f32) -> bool {
 }
 pub fn handle_window_event(event: &WindowEvent) {
   match event {
-    // WindowEvent::CursorMoved { delta } => {
-    //   MOUSE.store_motion(delta.0, delta.1);
-    // }
     WindowEvent::KeyboardInput {
       device_id: _,
       event:
@@ -105,6 +112,9 @@ pub fn handle_window_event(event: &WindowEvent) {
         ElementState::Pressed => KEYMAP.insert(keycode.to_owned(), true),
         ElementState::Released => KEYMAP.insert(keycode.to_owned(), false),
       };
+    }
+    WindowEvent::CursorMoved { device_id: _, position } => {
+      MOUSE.update_pos(position.x, position.y)
     }
     _ => {}
   }
