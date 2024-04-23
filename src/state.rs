@@ -1,18 +1,19 @@
 use std::{path::Path, sync::Arc};
 
 use color_eyre::eyre::Result;
+use glam::Vec3;
 use na::Point3;
 use wgpu::{include_wgsl, Backends};
 use winit::window::Window;
 
 use crate::{
+  data,
   exts::state::{DeviceTrait, DeviceWarp},
   geom::{
     self,
     camera::{Camera, CameraUniform},
   },
-  instance::{self, Instance, InstanceRaw},
-  model::{self, VertexTrait},
+  instance::{self, Instance},
   res, texture,
 };
 
@@ -23,7 +24,7 @@ pub struct State {
   config: wgpu::SurfaceConfiguration,
   pub size: winit::dpi::PhysicalSize<u32>,
   render_pipeline: wgpu::RenderPipeline,
-  obj_model: model::Model,
+
   clear_color: na::Vector3<f64>,
   camera: geom::camera::Camera,
   camera_uniform: CameraUniform,
@@ -34,6 +35,15 @@ pub struct State {
   instance_buffer: wgpu::Buffer,
 
   depth_texture: texture::Texture,
+
+  vertex_buffer: wgpu::Buffer,
+  num_vertices: u32,
+
+  index_buffer: wgpu::Buffer,
+  num_indices: u32,
+
+  texture: crate::texture_array::TextureArray,
+  texture_bind_group: wgpu::BindGroup,
 }
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -93,7 +103,7 @@ impl State {
           visibility: wgpu::ShaderStages::FRAGMENT,
           ty: wgpu::BindingType::Texture {
             multisampled: false,
-            view_dimension: wgpu::TextureViewDimension::D2,
+            view_dimension: wgpu::TextureViewDimension::D2Array,
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
           },
           count: None,
@@ -113,7 +123,25 @@ impl State {
       ],
     );
 
-    let camera = Camera::new(Point3::new(0.0, 0.0, -2.0));
+    let texture = crate::texture_array::TextureArray::new(&device.get_device(), &queue);
+    let texture_bind_group = device
+      .get_device()
+      .create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &texture_bind_group_layout,
+        entries: &[
+          wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&texture.texture_view),
+          },
+          wgpu::BindGroupEntry {
+            binding: 1,
+            resource: wgpu::BindingResource::Sampler(&texture.sampler),
+          },
+        ],
+        label: Some("texture_bind_group"),
+      });
+
+    let camera = Camera::new(Vec3::new(0.0, 0.0, -1.0));
     let mut camera_uniform = CameraUniform::new();
     camera_uniform.update_view_proj(&camera, config.width as f32 / config.height as f32);
 
@@ -159,7 +187,7 @@ impl State {
         // 指定应将着色器中的哪个函数作为 entry_point
         entry_point: "vs_main",
         // buffers 字段用于告知 wgpu 我们要传递给顶点着色器的顶点类型
-        buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
+        buffers: &[data::Vertex::desc(), Instance::desc()],
       },
       // primitive 字段描述了应如何将我们所提供的顶点数据转为三角形
       wgpu::PrimitiveState {
@@ -212,42 +240,38 @@ impl State {
       None,
     );
 
-    let obj_model = res::load_model(
-      Path::new("cube/cube.obj"),
-      &device,
-      &queue,
-      &texture_bind_group_layout,
-    )
-    .await
-    .unwrap();
-
-    const SPACE_BETWEEN: f32 = 3.0;
     let instances = (0..NUM_INSTANCES_PER_ROW)
-      .flat_map(|z| {
+      .flat_map(|y| {
         (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-          let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-          let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-          let position = na::Point3::new(x as f32, 0.0, z as f32);
-          let rotation = if position.xyz() == na::Point3::new(0.0, 0.0, 0.0) {
-            // 需要这行特殊处理，这样在 (0, 0, 0) 的物体不会被缩放到 0
-            // 因为错误的四元数会影响到缩放
-            na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.0_f32.to_radians())
-          } else {
-            na::UnitQuaternion::from_axis_angle(
-              &na::Unit::new_unchecked(position.coords.normalize()),
-              45.0_f32.to_radians(),
-            )
-          };
-          Instance { position, rotation }
+          let position = na::Point2::new(x as f32, y as f32);
+
+          Instance {
+            position,
+            tex_id: 0,
+          }
         })
       })
       .collect::<Vec<_>>();
-    let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+
     let instance_buffer = device.create_buffer_init(
       "Instance Buffer",
-      bytemuck::cast_slice(&instance_data),
+      bytemuck::cast_slice(&instances),
       wgpu::BufferUsages::VERTEX,
     );
+    let num_vertices = crate::data::VERTICES.len() as u32;
+    let vertex_buffer = device.create_buffer_init(
+      "Vertex Buffer",
+      bytemuck::cast_slice(data::VERTICES),
+      wgpu::BufferUsages::VERTEX,
+    );
+
+    let index_buffer = device.create_buffer_init(
+      "Index Buffer",
+      bytemuck::cast_slice(data::INDICES),
+      wgpu::BufferUsages::INDEX,
+    );
+    let num_indices = crate::data::INDICES.len() as u32;
+
     Ok(Self {
       surface,
       device: rdevice,
@@ -256,7 +280,6 @@ impl State {
       size,
       clear_color: na::Vector3::new(0.1, 0.7, 0.2),
       render_pipeline,
-      obj_model,
       camera,
       camera_uniform,
       camera_buffer,
@@ -264,6 +287,12 @@ impl State {
       instances,
       instance_buffer,
       depth_texture,
+      vertex_buffer,
+      num_vertices,
+      index_buffer,
+      num_indices,
+      texture,
+      texture_bind_group,
     })
   }
 
@@ -332,18 +361,13 @@ impl State {
       }),
       ..Default::default()
     });
-    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
     render_pass.set_pipeline(&self.render_pipeline);
-
-    use model::DrawModel;
-    let mesh = &self.obj_model.meshes[0];
-    let material = &self.obj_model.materials[mesh.material];
-    render_pass.draw_mesh_instanced(
-      mesh,
-      material,
-      0..self.instances.len() as u32,
-      &self.camera_bind_group,
-    );
+    render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
+    render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+    render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+    render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as u32);
 
     drop(render_pass);
 
@@ -353,6 +377,4 @@ impl State {
 
     Ok(())
   }
-
-
 }

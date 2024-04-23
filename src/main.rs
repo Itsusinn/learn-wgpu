@@ -1,3 +1,4 @@
+mod data;
 pub mod ext;
 pub mod exts;
 pub mod geom;
@@ -5,10 +6,10 @@ pub mod input;
 pub mod instance;
 mod light;
 mod log;
-pub mod model;
 pub mod res;
 pub mod state;
 pub mod texture;
+pub mod texture_array;
 pub mod time;
 mod world;
 
@@ -43,24 +44,21 @@ async fn main() -> Result<()> {
   let mut cursor_visible = true;
 
   event_loop.run(move |event, elwt| match event {
-    Event::DeviceEvent { device_id: _, event } => {
+    Event::DeviceEvent {
+      device_id: _,
+      event,
+    } => {
       // handle mouse input
       input::handle_device_event(&event)
     }
-    Event::WindowEvent { event, window_id: _ } => {
+    Event::WindowEvent {
+      event,
+      window_id: _,
+    } => {
       // handle keyboarc input
       input::handle_window_event(&event);
       match event {
-        WindowEvent::CloseRequested
-        | WindowEvent::KeyboardInput {
-          event:
-            KeyEvent {
-              state: ElementState::Pressed,
-              logical_key: keyboard::Key::Named(NamedKey::Escape),
-              ..
-            },
-          ..
-        } => elwt.exit(),
+        WindowEvent::CloseRequested => elwt.exit(),
         WindowEvent::Resized(physical_size) => {
           state.resize(physical_size);
         }
@@ -85,6 +83,9 @@ async fn main() -> Result<()> {
           window.request_redraw();
         }
         _ => {}
+      }
+      if input::get_key_with_cooldown(KeyCode::Escape, 0.3) {
+        elwt.exit();
       }
       if input::get_key_with_cooldown(KeyCode::ControlLeft, 0.3) {
         cursor_visible = !cursor_visible;

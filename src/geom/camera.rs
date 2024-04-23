@@ -1,114 +1,70 @@
-use na::{Matrix4, Point3, Vector3};
+use glam::{vec3, Mat4, Vec3};
 use winit::keyboard::KeyCode;
 
 use crate::{input, time};
 pub struct Camera {
   // 摄像机的位置
-  pub eye: Point3<f32>,
-  // 摄像机的看向
-  toward: Vector3<f32>,
-  // 摄像机朝上的方向
-  up: Vector3<f32>,
-  // 俯仰角
-  pitch: f32,
-  // 偏航角
-  yaw: f32,
-  // 近平面距离
-  znear: f32,
-  // 远平面距离
-  zfar: f32,
-  // 视域(角度)
-  fov: f32,
+  pub eye: Vec3,
+  pub target: Vec3,
+  pub up: Vec3,
 }
 impl Camera {
-  pub fn new(eye: Point3<f32>) -> Self {
-    // 格拉姆—施密特正交化(Gram-Schmidt Process)。 <https://en.wikipedia.org/wiki/Gram-Schmidt_process>
-    let toward = Vector3::new(0.0, 0.0, 1.0);
-    let right = Vector3::y_axis().cross(&toward);
-    let up = toward.cross(&right).normalize();
+  pub fn new(eye: Vec3) -> Self {
     Camera {
       eye,
-      toward,
-      up,
-      pitch: 0.0,
-      yaw: -90.0,
-      znear: 0.1,
-      zfar: 100.0,
-      fov: 45.0,
+      target: vec3(eye.x, eye.y, eye.z + 1.0),
+      up: vec3(0.0, 1.0, 0.0),
     }
   }
 
   pub fn move_forward_and_backward(&mut self, distance: f32) {
-    let change = Vector3::new(self.toward.x, 0.0, self.toward.z).normalize();
-    let delta = change * distance;
-    self.eye += delta
+    self.eye.z += distance;
+    self.target.x = self.eye.x;
+    self.target.y = self.eye.y;
+    self.target.z = self.eye.z + 1.0;
   }
 
   pub fn move_left_and_right(&mut self, distance: f32) {
-    let right = Vector3::y_axis().cross(&self.toward).normalize();
-    let delta = right * distance;
-    self.eye += delta;
+    self.eye.x += distance;
+    self.target.x = self.eye.x;
+    self.target.y = self.eye.y;
   }
 
   pub fn move_upward_and_downward(&mut self, distance: f32) {
     self.eye.y += distance;
+    self.target.x = self.eye.x;
+    self.target.y = self.eye.y;
   }
 
-  pub fn turn_right_and_left(&mut self, angle: f32) {
-    self.yaw += angle;
-    self.toward.x = self.pitch.to_radians().cos() * self.yaw.to_radians().cos();
-    self.toward.z = self.pitch.to_radians().cos() * self.yaw.to_radians().sin();
-    self.gs_process();
-  }
-
-  pub fn turn_up_and_down(&mut self, angle: f32) {
-    self.pitch += angle;
-    if self.pitch >= 89.0 {
-      self.pitch = 89.0
-    } else if self.pitch <= -89.0 {
-      self.pitch = -89.0
-    }
-    self.toward.x = self.pitch.to_radians().cos() * self.yaw.to_radians().cos();
-    self.toward.y = self.pitch.to_radians().sin();
-    self.toward.z = self.pitch.to_radians().cos() * self.yaw.to_radians().sin();
-    self.gs_process()
-  }
-
-  // Gram-Schmidt Process, 正交化
-  fn gs_process(&mut self) {
-    let right = Vector3::y_axis().cross(&self.toward);
-    self.up = self.toward.cross(&right).normalize();
-  }
 
   // 获取摄像机的视图矩阵
-  pub fn get_view_mat(&self) -> Matrix4<f32> {
-    Matrix4::look_at_lh(&self.eye, &(&self.eye + &self.toward), &self.up)
+  pub fn get_view_mat(&self) -> Mat4 {
+    Mat4::look_at_lh(self.eye, self.target, self.up)
+    // Matrix4::look_at_lh(&na::Point3::new(0.0, 0.0, -1.0), &na::Point3::new(0.0, 0.0, 1.0), &na::Vector3::new(0.0, 1.0, 0.0))
   }
 
   // 获得透视投影矩阵
   // aspect: 宽高比
-  pub fn get_proj_mat(&self, aspect: f32) -> Matrix4<f32> {
-    Matrix4::new_perspective(aspect, self.fov, self.znear, self.zfar)
+  pub fn get_proj_mat(&self, aspect: f32) -> Mat4 {
+    // could control zoom
+    Mat4::orthographic_lh(-8.0, 8.0, -6.0, 6.0, 0.1, 4.0)
+    // Matrix4::new_perspective(4.0/3.0, 80.0,  0.1, 60.0)
   }
 
-  pub fn get_vp_mat(&self, aspect: f32) -> Matrix4<f32> {
-    // OPENGL_TO_WGPU_MATRIX * self.get_proj_mat(aspect) * self.get_view_mat()
+  pub fn get_vp_mat(&self, aspect: f32) -> Mat4 {
     self.get_proj_mat(aspect) * self.get_view_mat()
+    // self.get_view_mat()
+    // self.get_proj_mat(aspect) * self.get_view_mat()
   }
 
   pub fn handle_input(&mut self) {
-    let (dx, dy) = input::fetch_motion();
-    let rate = time::get_delta() * 10.0;
-    if dx != 0 {
-      self.turn_right_and_left((dx as f32) / 10.0);
-    }
-    if dy != 0 {
-      self.turn_up_and_down((dy as f32) / 10.0);
-    }
-    if input::get_key(KeyCode::KeyW) {
+
+    let rate = time::get_delta() * 100.0;
+
+    if input::get_key(KeyCode::Space) {
       self.move_forward_and_backward(-rate);
     }
-    if input::get_key(KeyCode::KeyS) {
+    if input::get_key(KeyCode::ShiftLeft) {
       self.move_forward_and_backward(rate);
     }
     if input::get_key(KeyCode::KeyA) {
@@ -117,10 +73,10 @@ impl Camera {
     if input::get_key(KeyCode::KeyD) {
       self.move_left_and_right(rate);
     }
-    if input::get_key(KeyCode::Space) {
+    if input::get_key(KeyCode::KeyW) {
       self.move_upward_and_downward(rate);
     }
-    if input::get_key(KeyCode::ShiftLeft) {
+    if input::get_key(KeyCode::KeyS) {
       self.move_upward_and_downward(-rate);
     }
   }
@@ -129,12 +85,12 @@ impl Camera {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
-  view_proj: Matrix4<f32>,
+  view_proj: Mat4,
 }
 impl CameraUniform {
   pub fn new() -> Self {
     Self {
-      view_proj: Matrix4::identity(),
+      view_proj: Mat4::IDENTITY,
     }
   }
 
@@ -143,10 +99,13 @@ impl CameraUniform {
   }
 }
 
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-);
+
+#[test]
+fn test_ort(){
+  let point = glam::f32::vec4(3.0, 4.0, 5.0, 1.0);
+  let view = glam::f32::Mat4::look_at_lh(glam::f32::vec3(0.0, 0.0, -1.0), glam::f32::vec3(0.0, 0.0, 1.0), glam::f32::vec3(0.0, 1.0, 0.0));
+  let ort = glam::f32::Mat4::orthographic_lh(-8.0, 8.0, -6.0, 6.0, -10.0, 10.0);
+  println!("{}", view * point);
+  println!("ort {}", ort * view * point);
+}
+
