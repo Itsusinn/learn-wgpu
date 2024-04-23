@@ -2,6 +2,8 @@ pub struct TextureArray {
   pub texture: wgpu::Texture,
   pub texture_view: wgpu::TextureView,
   pub sampler: wgpu::Sampler,
+  pub bind_group_layout: wgpu::BindGroupLayout,
+  pub bind_group: wgpu::BindGroup
 }
 impl TextureArray {
   pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
@@ -73,10 +75,66 @@ impl TextureArray {
       mipmap_filter: wgpu::FilterMode::Nearest,
       ..Default::default()
     });
+    let bind_group_layout = Self::new_bind_group_layout(device);
+    let bind_group = Self::new_bind_group(device, &bind_group_layout, &texture_view, &sampler);
     Self {
       texture,
       texture_view,
       sampler,
+      bind_group_layout,
+      bind_group,
     }
+  }
+
+  fn new_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+      label: Some("texture_bind_group_layout"),
+      entries: &[
+        wgpu::BindGroupLayoutEntry {
+          binding: 0,
+          visibility: wgpu::ShaderStages::FRAGMENT,
+          ty: wgpu::BindingType::Texture {
+            multisampled: false,
+            view_dimension: wgpu::TextureViewDimension::D2Array,
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+          },
+          count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+          binding: 1,
+          visibility: wgpu::ShaderStages::FRAGMENT,
+          ty: wgpu::BindingType::Sampler(
+            // SamplerBindingType::Comparison 仅可供 TextureSampleType::Depth 使用
+            // 如果纹理的 sample_type 是 TextureSampleType::Float { filterable: true }
+            // 那么就应当使用 SamplerBindingType::Filtering
+            // 否则会报错
+            wgpu::SamplerBindingType::Filtering,
+          ),
+          count: None,
+        },
+      ],
+    })
+  }
+
+  fn new_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+  ) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+      layout: &layout,
+      entries: &[
+        wgpu::BindGroupEntry {
+          binding: 0,
+          resource: wgpu::BindingResource::TextureView(view),
+        },
+        wgpu::BindGroupEntry {
+          binding: 1,
+          resource: wgpu::BindingResource::Sampler(sampler),
+        },
+      ],
+      label: Some("texture_bind_group"),
+    })
   }
 }

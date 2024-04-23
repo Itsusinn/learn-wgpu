@@ -36,7 +36,6 @@ impl Camera {
     self.target.y = self.eye.y;
   }
 
-
   // 获取摄像机的视图矩阵
   pub fn get_view_mat(&self) -> Mat4 {
     Mat4::look_at_lh(self.eye, self.target, self.up)
@@ -45,7 +44,7 @@ impl Camera {
 
   // 获得透视投影矩阵
   // aspect: 宽高比
-  pub fn get_proj_mat(&self, aspect: f32) -> Mat4 {
+  pub fn get_proj_mat(&self, _aspect: f32) -> Mat4 {
     // could control zoom
     Mat4::orthographic_lh(-8.0, 8.0, -6.0, 6.0, 0.1, 4.0)
     // Matrix4::new_perspective(4.0/3.0, 80.0,  0.1, 60.0)
@@ -58,7 +57,6 @@ impl Camera {
   }
 
   pub fn handle_input(&mut self) {
-
     let rate = time::get_delta() * 100.0;
 
     if input::get_key(KeyCode::Space) {
@@ -99,13 +97,15 @@ impl CameraUniform {
   }
 }
 
-
 #[test]
-fn test_ort(){
+fn test_ort() {
   let point = glam::f32::vec4(3.0, 4.0, 5.0, 1.0);
-  let view = glam::f32::Mat4::look_at_lh(glam::f32::vec3(0.0, 0.0, -1.0), glam::f32::vec3(0.0, 0.0, 1.0), glam::f32::vec3(0.0, 1.0, 0.0));
+  let view = glam::f32::Mat4::look_at_lh(
+    glam::f32::vec3(0.0, 0.0, -1.0),
+    glam::f32::vec3(0.0, 0.0, 1.0),
+    glam::f32::vec3(0.0, 1.0, 0.0),
+  );
   let ort = glam::f32::Mat4::orthographic_lh(-8.0, 8.0, -6.0, 6.0, -10.0, 10.0);
   println!("{}", view * point);
   println!("ort {}", ort * view * point);
 }
-

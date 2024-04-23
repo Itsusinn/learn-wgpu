@@ -110,4 +110,9 @@ pub fn handle_window_event(event: &WindowEvent) {
   }
 }
 
-pub fn handle_device_event(event: &DeviceEvent) {}
+pub fn handle_device_event(event: &DeviceEvent) {
+  match event {
+    DeviceEvent::MouseMotion { delta } => MOUSE.store_motion(delta.0, delta.1),
+    _ => {}
+  }
+}

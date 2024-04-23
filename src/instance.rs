@@ -1,4 +1,4 @@
-use na::{Matrix4, Point2, Point3, UnitQuaternion};
+use na::Point2;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]

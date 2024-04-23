@@ -20,7 +20,7 @@ use state::State;
 use winit::{
   event::*,
   event_loop::EventLoop,
-  keyboard::{self, KeyCode, NamedKey},
+  keyboard::{KeyCode},
   window::{CursorGrabMode, WindowBuilder},
 };
 
@@ -49,20 +49,26 @@ async fn main() -> Result<()> {
       event,
     } => {
       // handle mouse input
-      input::handle_device_event(&event)
+      if focus {
+        input::handle_device_event(&event)
+      }
+
     }
     Event::WindowEvent {
       event,
       window_id: _,
     } => {
       // handle keyboarc input
-      input::handle_window_event(&event);
+      if focus {
+        input::handle_window_event(&event);
+      }
+
       match event {
         WindowEvent::CloseRequested => elwt.exit(),
         WindowEvent::Resized(physical_size) => {
           state.resize(physical_size);
         }
-        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+        WindowEvent::ScaleFactorChanged {  .. } => {
           // state.resize(*new_inner_size);
         }
         WindowEvent::Focused(v) => {

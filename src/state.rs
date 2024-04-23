@@ -1,9 +1,9 @@
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use color_eyre::eyre::Result;
 use glam::Vec3;
-use na::Point3;
-use wgpu::{include_wgsl, Backends};
+
+use wgpu::include_wgsl;
 use winit::window::Window;
 
 use crate::{
@@ -13,8 +13,7 @@ use crate::{
     self,
     camera::{Camera, CameraUniform},
   },
-  instance::{self, Instance},
-  res, texture,
+  instance::{self, Instance}, texture,
 };
 
 pub struct State {
@@ -37,13 +36,11 @@ pub struct State {
   depth_texture: texture::Texture,
 
   vertex_buffer: wgpu::Buffer,
-  num_vertices: u32,
 
   index_buffer: wgpu::Buffer,
   num_indices: u32,
 
-  texture: crate::texture_array::TextureArray,
-  texture_bind_group: wgpu::BindGroup,
+  texture: crate::texture_array::TextureArray
 }
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -95,51 +92,7 @@ impl State {
     };
     surface.configure(&device.inner, &config);
 
-    let texture_bind_group_layout = device.create_bind_group_layout(
-      "texture_bind_group_layout",
-      &[
-        wgpu::BindGroupLayoutEntry {
-          binding: 0,
-          visibility: wgpu::ShaderStages::FRAGMENT,
-          ty: wgpu::BindingType::Texture {
-            multisampled: false,
-            view_dimension: wgpu::TextureViewDimension::D2Array,
-            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-          },
-          count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-          binding: 1,
-          visibility: wgpu::ShaderStages::FRAGMENT,
-          ty: wgpu::BindingType::Sampler(
-            // SamplerBindingType::Comparison 仅可供 TextureSampleType::Depth 使用
-            // 如果纹理的 sample_type 是 TextureSampleType::Float { filterable: true }
-            // 那么就应当使用 SamplerBindingType::Filtering
-            // 否则会报错
-            wgpu::SamplerBindingType::Filtering,
-          ),
-          count: None,
-        },
-      ],
-    );
-
     let texture = crate::texture_array::TextureArray::new(&device.get_device(), &queue);
-    let texture_bind_group = device
-      .get_device()
-      .create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &texture_bind_group_layout,
-        entries: &[
-          wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::TextureView(&texture.texture_view),
-          },
-          wgpu::BindGroupEntry {
-            binding: 1,
-            resource: wgpu::BindingResource::Sampler(&texture.sampler),
-          },
-        ],
-        label: Some("texture_bind_group"),
-      });
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -1.0));
     let mut camera_uniform = CameraUniform::new();
@@ -176,7 +129,7 @@ impl State {
     let shader = device.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
     let render_pipeline_layout = device.create_pipeline_layout(
       "Render Pipeline Layout",
-      &[&texture_bind_group_layout, &camera_bind_group_layout],
+      &[&texture.bind_group_layout, &camera_bind_group_layout],
       &[],
     );
     let render_pipeline = device.create_render_pipeline(
@@ -258,7 +211,6 @@ impl State {
       bytemuck::cast_slice(&instances),
       wgpu::BufferUsages::VERTEX,
     );
-    let num_vertices = crate::data::VERTICES.len() as u32;
     let vertex_buffer = device.create_buffer_init(
       "Vertex Buffer",
       bytemuck::cast_slice(data::VERTICES),
@@ -288,11 +240,9 @@ impl State {
       instance_buffer,
       depth_texture,
       vertex_buffer,
-      num_vertices,
       index_buffer,
       num_indices,
-      texture,
-      texture_bind_group,
+      texture
     })
   }
 
@@ -362,7 +312,7 @@ impl State {
       ..Default::default()
     });
     render_pass.set_pipeline(&self.render_pipeline);
-    render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
+    render_pass.set_bind_group(0, &self.texture.bind_group, &[]);
     render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
     render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
